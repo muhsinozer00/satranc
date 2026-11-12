@@ -272,16 +272,10 @@ h1 span { color: #899a6b; }
 .hero-visual-bottom { padding: 13px 3px 0; font-size: 10px; }
 .hero-visual-bottom span:first-child { color: #697c52; font-size: 20px; }
 .hero-visual-bottom span:last-child { color: #a0ad86; font-size: 16px; }
-.hero-float-note { position: absolute; right: -8px; bottom: 35px; display: flex; align-items: center; gap: 11px; padding: 13px 16px; border: 1px solid #e4e8da; border-radius: 13px; background: #fffefa; box-shadow: 0 12px 30px rgba(54,60,45,.1); animation: note-float 5s ease-in-out infinite; }
-.hero-note-icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; background: #eef2e5; color: #819463; }
-.hero-float-note strong, .hero-float-note small { display: block; }
-.hero-float-note strong { color: #687651; font-size: 8px; letter-spacing: 1px; }
-.hero-float-note small { margin-top: 4px; color: #9a9c91; font-size: 9px; }
 .hero-orbit { position: absolute; z-index: -1; border: 1px solid rgba(137,154,107,.2); border-radius: 50%; }
 .orbit-one { inset: 6% 2%; transform: rotate(-17deg); }
 .orbit-two { inset: 16% -5%; transform: rotate(25deg); }
 @keyframes hero-float { 0%,100% { transform: translateY(0) rotate(2deg); } 50% { transform: translateY(-9px) rotate(1deg); } }
-@keyframes note-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 .how-section { padding: 30px 0 58px; border-top: 1px solid rgba(48,56,49,.09); }
 .how-heading { display: flex; align-items: end; justify-content: space-between; gap: 30px; margin-bottom: 27px; }
 .how-heading h2 { margin: 0; color: #343d35; font-family: 'Manrope', sans-serif; font-size: clamp(28px,3vw,38px); font-weight: 600; letter-spacing: -1.7px; }
@@ -321,7 +315,6 @@ h1 span { color: #899a6b; }
 @media (max-width: 900px) {
   .hero-section { grid-template-columns: minmax(0,1fr) minmax(300px,.85fr); gap: 25px; min-height: 560px; }
   .hero-copy h1 { font-size: clamp(42px,6vw,60px); letter-spacing: -3px; }
-  .hero-float-note { right: -4px; }
 }
 @media (max-width: 740px) {
   .screen-stage { min-height: calc(100vh - 62px); }
@@ -331,7 +324,6 @@ h1 span { color: #899a6b; }
   .hero-description { font-size: 13px; }
   .hero-visual { min-height: 350px; }
   .hero-visual-card { width: min(84%,340px); }
-  .hero-float-note { right: 0; bottom: 20px; }
   .how-heading { align-items: start; flex-direction: column; gap: 12px; }
   .feature-grid { grid-template-columns: 1fr; }
   .feature-card { min-height: 0; }
@@ -343,7 +335,6 @@ h1 span { color: #899a6b; }
   .hero-actions { align-items: start; flex-direction: column; gap: 12px; }
   .hero-proof { font-size: 7px; gap: 6px; letter-spacing: .7px; }
   .hero-visual { min-height: 315px; }
-  .hero-float-note { bottom: 10px; padding: 10px 12px; }
   .game-heading { align-items: start; flex-direction: column; }
 }
 @media (prefers-reduced-motion: reduce) {

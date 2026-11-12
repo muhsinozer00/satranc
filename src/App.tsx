@@ -295,7 +295,7 @@ export default function App() {
         setEngineStatus('failed')
       }
     }
-    const remainingThinkTime = Math.max(0, 5000 - (performance.now() - aiTurnStartedAt))
+    const remainingThinkTime = Math.max(0, 3500 - (performance.now() - aiTurnStartedAt))
     if (remainingThinkTime > 0) await new Promise((resolve) => window.setTimeout(resolve, remainingThinkTime))
     if (generation !== gameGeneration.current) return
 
@@ -472,7 +472,6 @@ export default function App() {
                   </div>
                   <div className="hero-visual-bottom"><span>♘</span><span>Bir hamle, yeni bir fikir.</span><span>↗</span></div>
                 </div>
-                <div className="hero-float-note"><span className="hero-note-icon">✳</span><span><strong>ACELE YOK</strong><small>Rakip 5 saniye bekler.</small></span></div>
                 <span className="hero-orbit orbit-one" /><span className="hero-orbit orbit-two" />
               </div>
             </section>
@@ -480,7 +479,7 @@ export default function App() {
             <section className="how-section" id="features">
               <div className="how-heading"><div><p className="eyebrow">NASIL ÇALIŞIR?</p><h2>Oyna, düşün, <span>geliş.</span></h2></div><p>Satranç öğrenmek için kusursuz oynaman gerekmez. Her oyun sana yeni bir şey öğretir.</p></div>
               <div className="feature-grid">
-                <article className="feature-card"><span className="feature-number">01</span><div className="feature-icon">♞</div><h3>Sana ayak uyduran rakip</h3><p>Stockfish destekli rakip, oyun gücünü tahmini seviyene göre ayarlar. Karar vermen için hamle arasında en az 5 saniye bırakır.</p></article>
+                <article className="feature-card"><span className="feature-number">01</span><div className="feature-icon">♞</div><h3>Sana ayak uyduran rakip</h3><p>Stockfish destekli rakip, oyun gücünü tahmini seviyene göre ayarlar. Karar vermen için hamle arasında en az 3,5 saniye bırakır.</p></article>
                 <article className="feature-card"><span className="feature-number">02</span><div className="feature-icon">⌁</div><h3>Antrenör gibi analiz</h3><p>Oyun sonunda iyi hamlelerini ve öğretici anları gösterir; bir sonraki oyunda deneyebileceğin fikirler verir.</p></article>
                 <article className="feature-card"><span className="feature-number">03</span><div className="feature-icon">◫</div><h3>Kendi masanı kur</h3><p>Farklı tahta renkleri ve taş setleri arasından seç. Tahtayı çevir, oyunu kendi gözünle gör.</p></article>
               </div>
@@ -517,8 +516,8 @@ export default function App() {
                     const isLastMove = lastMove?.from === square || lastMove?.to === square
                     const isTarget = legalTargets.includes(square)
                     const isCapture = isTarget && Boolean(piece)
-                    const isFileLabel = flipped ? file === 'h' : file === 'a'
-                    const isRankLabel = flipped ? rank === 8 : rank === 1
+                    const isFileLabel = flipped ? rank === 8 : rank === 1
+                    const isRankLabel = flipped ? file === 'h' : file === 'a'
 
                     return (
                       <button
