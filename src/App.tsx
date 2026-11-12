@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Chess, type Move, type Square } from 'chess.js'
 import { StockfishEngine, type EngineLine, type EngineResult } from './engine'
+import { playSound } from './sounds'
 
 type EngineStatus = 'loading' | 'ready' | 'failed'
 type GamePhase = 'playing' | 'review'
@@ -167,12 +168,24 @@ export default function App() {
   const [pendingPromotion, setPendingPromotion] = useState<{ from: Square; to: Square } | null>(null)
   const [notice, setNotice] = useState('')
   const [resigned, setResigned] = useState(false)
+  const [boardScale, setBoardScale] = useState(1)
+  const [soundsEnabled, setSoundsEnabled] = useState(true)
+  const [reviewPly, setReviewPly] = useState(0)
   const engineRef = useRef<StockfishEngine | null>(null)
   const gameGeneration = useRef(0)
 
   const game = useMemo(() => new Chess(fen), [fen])
-  const lastMove = moveLog.at(-1)
-  const kingInCheck = checkSquare(game)
+  const reviewGame = useMemo(() => {
+    if (phase !== 'review') return game
+    const replay = new Chess()
+    for (const move of moveLog.slice(0, reviewPly)) replay.move(move.san)
+    return replay
+  }, [phase, game, moveLog, reviewPly])
+  const boardGame = phase === 'review' ? reviewGame : game
+  const lastMove = phase === 'review' ? moveLog[reviewPly - 1] : moveLog.at(-1)
+  const kingInCheck = checkSquare(boardGame)
+  const selectedReviewMove = reviewPly > 0 ? moveLog[reviewPly - 1] : null
+  const selectedReviewCoach = selectedReviewMove?.color === 'w' ? coachMoves.find((move) => move.uci.startsWith(`${selectedReviewMove.from}${selectedReviewMove.to}`)) : null
   const boardReady = phase === 'playing' && game.turn() === 'w' && !aiThinking &&
     (engineStatus === 'failed' || (engineStatus === 'ready' && baseline?.fen === fen))
   const waitingLabel = phase === 'review'
@@ -200,6 +213,22 @@ export default function App() {
       engine.terminate()
     }
   }, [])
+
+  useEffect(() => {
+    if (phase === 'review') setReviewPly(moveLog.length)
+  }, [phase, moveLog.length])
+
+  useEffect(() => {
+    if (phase !== 'review' || screen !== 'game') return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+      if ((event.target as HTMLElement)?.closest('button, input, textarea, select')) return
+      event.preventDefault()
+      setReviewPly((current) => Math.max(0, Math.min(moveLog.length, current + (event.key === 'ArrowRight' ? 1 : -1))))
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [phase, screen, moveLog.length])
 
   useEffect(() => {
     if (phase !== 'playing' || game.turn() !== 'w' || aiThinking || engineStatus !== 'ready') return
@@ -240,6 +269,8 @@ export default function App() {
 
     const bestUci = snapshot?.lines[0]?.uci ?? snapshot?.bestMove ?? null
     const bestSan = sanForUci(fen, bestUci)
+    if (soundsEnabled) playSound(playedMove.captured ? 'capture' : 'move')
+    if (playedGame.isCheck() && soundsEnabled) playSound('check')
     clearSelection()
     setPendingPromotion(null)
     setBaseline(null)
@@ -306,6 +337,8 @@ export default function App() {
     }
 
     const computerMove = blackGame.move(computerMoveInput)
+    if (soundsEnabled) playSound(computerMove!.captured ? 'capture' : 'move')
+    if (blackGame.isCheck() && soundsEnabled) playSound('check')
     setFen(blackGame.fen())
     setMoveLog((current) => [...current, { san: computerMove!.san, from: computerMove!.from, to: computerMove!.to, color: 'b' }])
 
@@ -367,6 +400,8 @@ export default function App() {
     setNotice('')
   }
 
+  function changeReviewPly(delta: number) { setReviewPly((current) => Math.max(0, Math.min(moveLog.length, current + delta))) }
+
   function resignGame() {
     if (phase !== 'playing' || aiThinking || moveLog.length === 0) return
     setResigned(true)
@@ -402,6 +437,7 @@ export default function App() {
           <span>hamle<span className="brand-period">.</span></span>
         </button>
         <div className="topbar-right">
+          <button className="sound-toggle" type="button" aria-pressed={soundsEnabled} onClick={() => setSoundsEnabled((enabled) => !enabled)}>{soundsEnabled ? '♫ Ses açık' : '♫ Ses kapalı'}</button>
           <span className="beta-pill"><span className="status-dot" /> KİŞİSEL ANTRENMAN</span>
           <button className="topbar-play" type="button" onClick={() => { startNewGame(); setScreen('game') }}>
             {screen === 'game' ? 'Oyuna dön' : 'Oyna'} <span>↗</span>
@@ -460,7 +496,7 @@ export default function App() {
               <button className="back-home" type="button" onClick={() => setScreen('home')}>← Ana menü</button>
             </section>
             <section className="game-layout" aria-label="Satranç oyunu">
-          <div className="board-column">
+          <div className="board-column" style={{ maxWidth: `${650 * boardScale}px` }}>
             <div className="player-strip opponent-strip">
               <div className="player-identity">
                 <div className="player-avatar opponent-avatar">♟</div>
@@ -476,7 +512,7 @@ export default function App() {
                     const square = `${file}${rank}` as Square
                     const fileIndex = FILES.indexOf(file)
                     const isLight = (fileIndex + rank) % 2 === 0
-                    const piece = game.get(square)
+                    const piece = boardGame.get(square)
                     const isSelected = selectedSquare === square
                     const isLastMove = lastMove?.from === square || lastMove?.to === square
                     const isTarget = legalTargets.includes(square)
@@ -519,7 +555,10 @@ export default function App() {
 
             <div className="board-actions">
               <div className="board-hint"><span className="hint-icon">↗</span> Taşı seç, gideceği kareye dokun.</div>
-              <button className="subtle-button" type="button" onClick={() => setFlipped((value) => !value)} aria-label="Tahtayı çevir"><span>⟳</span> Tahtayı çevir</button>
+              <div className="board-action-controls">
+                <div className="board-zoom" aria-label="Tahta boyutu"><button type="button" aria-label="Tahtayı küçült" disabled={boardScale <= .7} onClick={() => setBoardScale((size) => Math.max(.7, +(size - .1).toFixed(1)))}>−</button><span>{Math.round(boardScale * 100)}%</span><button type="button" aria-label="Tahtayı büyüt" disabled={boardScale >= 1.3} onClick={() => setBoardScale((size) => Math.min(1.3, +(size + .1).toFixed(1)))}>+</button></div>
+                <button className="subtle-button" type="button" onClick={() => setFlipped((value) => !value)} aria-label="Tahtayı çevir"><span>⟳</span> Çevir</button>
+              </div>
             </div>
           </div>
 
@@ -547,9 +586,9 @@ export default function App() {
                     return (
                       <div className="move-row" key={index}>
                         <span className="move-number">{index + 1}.</span>
-                        <span className="white-move">{white?.san ?? '—'}</span>
+                        <button type="button" className={`white-move move-history-button ${phase === 'review' && reviewPly === index * 2 + 1 ? 'move-active' : ''}`} onClick={() => phase === 'review' && setReviewPly(index * 2 + 1)}>{white?.san ?? '—'}</button>
                         {whiteReview?.grade && <span className={`move-grade grade-${whiteReview.grade}`} title={gradeLabel(whiteReview.grade)} />}
-                        <span className="black-move">{black?.san ?? ''}</span>
+                        {black && <button type="button" className={`black-move move-history-button ${phase === 'review' && reviewPly === index * 2 + 2 ? 'move-active' : ''}`} onClick={() => phase === 'review' && setReviewPly(index * 2 + 2)}>{black.san}</button>}
                       </div>
                     )
                   })}
@@ -557,6 +596,16 @@ export default function App() {
                 </div>
               )}
             </div>
+
+            {phase === 'review' && (
+              <div className="review-stepper" aria-label="Hamle analizi gezinme">
+                <div className="review-stepper-top"><strong>{selectedReviewMove ? `${selectedReviewMove.color === 'w' ? 'Sen' : 'Rakip'} · ${selectedReviewMove.san}` : 'Başlangıç konumu'}</strong><span>{reviewPly} / {moveLog.length}</span></div>
+                <p>{selectedReviewCoach ? coachingText(selectedReviewCoach) : selectedReviewMove ? 'Rakibin hamlesi. Tahtadaki yeni tehdidi ve korumasız taşları incele.' : 'Oyunun başlangıcı. İlk hamleden önce merkez kareleri ve taş gelişimini düşün.'}</p>
+                {selectedReviewCoach && <div className="review-metrics"><span>{selectedReviewCoach.grade ? gradeLabel(selectedReviewCoach.grade) : 'Motor değerlendirmesi yok'}</span>{selectedReviewCoach.loss !== null && <span>En iyi hamle: {selectedReviewCoach.bestMove ?? '—'} · yaklaşık {selectedReviewCoach.loss.toFixed(1)} piyon fark</span>}</div>}
+                <div className="review-stepper-buttons"><button type="button" onClick={() => changeReviewPly(-1)} disabled={reviewPly === 0}>← Önceki</button><button type="button" onClick={() => changeReviewPly(1)} disabled={reviewPly === moveLog.length}>Sonraki →</button></div>
+                <small>Klavyede ← / → tuşlarıyla gezin</small>
+              </div>
+            )}
 
             {phase === 'review' && coachMoves.length > 0 && (
               <div className="coach-detail-list" aria-label="Antrenör hamle notları">
