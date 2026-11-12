@@ -222,7 +222,7 @@ export default function App() {
     if (phase !== 'review' || screen !== 'game') return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
-      if ((event.target as HTMLElement)?.closest('button, input, textarea, select')) return
+      if ((event.target as HTMLElement)?.closest('input, textarea, select, [contenteditable="true"]')) return
       event.preventDefault()
       setReviewPly((current) => Math.max(0, Math.min(moveLog.length, current + (event.key === 'ArrowRight' ? 1 : -1))))
     }
