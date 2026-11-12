@@ -21,3 +21,12 @@ Source: https://github.com/kmar/chess_svg_piece_sets
 ## Sound effects
 
 Move, capture, and check sounds are synthesized in `src/sounds.ts` with the Web Audio API; no third-party sound recordings are included.
+
+## Lichess puzzle data
+
+`public/puzzles` contains 40,578 valid, popular puzzle records derived from the Lichess Open Database. Lichess releases its puzzle database under CC0-1.0, allowing commercial use, modification, and redistribution. The app loads only rating shards near the player's current puzzle level.
+
+Sources:
+
+- https://database.lichess.org/
+- https://github.com/mcognetta/lichess-combined-puzzle-game-db (50,000-record CC0 sample used to prepare this bundled subset)

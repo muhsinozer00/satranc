@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Chess, type Move, type Square } from 'chess.js'
 import { StockfishEngine, type EngineLine, type EngineResult } from './engine'
 import { playSound } from './sounds'
+import PuzzleRoom from './PuzzleRoom'
 
 type EngineStatus = 'loading' | 'ready' | 'failed'
 type GamePhase = 'playing' | 'review'
@@ -151,7 +152,7 @@ function coachingText(move: CoachMove) {
 }
 
 export default function App() {
-  const [screen, setScreen] = useState<'home' | 'game'>('home')
+  const [screen, setScreen] = useState<'home' | 'game' | 'puzzles'>('home')
   const [fen, setFen] = useState(() => new Chess().fen())
   const [phase, setPhase] = useState<GamePhase>('playing')
   const [engineStatus, setEngineStatus] = useState<EngineStatus>('loading')
@@ -184,6 +185,11 @@ export default function App() {
   const boardGame = phase === 'review' ? reviewGame : game
   const lastMove = phase === 'review' ? moveLog[reviewPly - 1] : moveLog.at(-1)
   const kingInCheck = checkSquare(boardGame)
+  const evaluatedCoachMoves = coachMoves.filter((move) => move.loss !== null)
+  const averageMoveLoss = evaluatedCoachMoves.length
+    ? evaluatedCoachMoves.reduce((total, move) => total + (move.loss ?? 0), 0) / evaluatedCoachMoves.length
+    : null
+  const matchAccuracy = averageMoveLoss === null ? null : Math.round(100 * Math.exp(-0.28 * Math.sqrt(averageMoveLoss)))
   const selectedReviewMove = reviewPly > 0 ? moveLog[reviewPly - 1] : null
   const selectedReviewCoach = selectedReviewMove?.color === 'w' ? coachMoves.find((move) => move.uci.startsWith(`${selectedReviewMove.from}${selectedReviewMove.to}`)) : null
   const boardReady = phase === 'playing' && game.turn() === 'w' && !aiThinking &&
@@ -278,6 +284,15 @@ export default function App() {
     setMoveLog((current) => [...current, { san: playedMove.san, from: playedMove.from, to: playedMove.to, color: 'w' }])
 
     if (playedGame.isGameOver()) {
+      if (snapshot) {
+        setCoachMoves((current) => [...current, {
+          san: playedMove.san,
+          uci: toUci(playedMove),
+          loss: playedGame.isCheckmate() ? 0 : null,
+          grade: playedGame.isCheckmate() ? 'sharp' : null,
+          bestMove: bestSan,
+        }])
+      }
       setPhase('review')
       return
     }
@@ -365,12 +380,7 @@ export default function App() {
     const piece = game.get(square)
 
     if (selectedSquare && legalTargets.includes(square)) {
-      const movingPiece = game.get(selectedSquare)
-      if (movingPiece?.type === 'p' && (square[1] === '8' || square[1] === '1')) {
-        setPendingPromotion({ from: selectedSquare, to: square })
-        return
-      }
-      void playUserMove(selectedSquare, square)
+      requestUserMove(selectedSquare, square)
       return
     }
 
@@ -381,6 +391,26 @@ export default function App() {
       return
     }
     clearSelection()
+  }
+
+  function requestUserMove(from: Square, to: Square) {
+    const movingPiece = game.get(from)
+    if (movingPiece?.type === 'p' && (to[1] === '8' || to[1] === '1')) {
+      setPendingPromotion({ from, to })
+      return
+    }
+    void playUserMove(from, to)
+  }
+
+  function handlePieceDragStart(event: DragEvent<HTMLButtonElement>, square: Square) {
+    if (!boardReady || game.get(square)?.color !== 'w') {
+      event.preventDefault()
+      return
+    }
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', square)
+    setSelectedSquare(square)
+    setLegalTargets(game.moves({ square, verbose: true }).map((move) => move.to))
   }
 
   function startNewGame() {
@@ -439,7 +469,8 @@ export default function App() {
         <div className="topbar-right">
           <button className="sound-toggle" type="button" aria-pressed={soundsEnabled} onClick={() => setSoundsEnabled((enabled) => !enabled)}>{soundsEnabled ? '♫ Ses açık' : '♫ Ses kapalı'}</button>
           <span className="beta-pill"><span className="status-dot" /> KİŞİSEL ANTRENMAN</span>
-          <button className="topbar-play" type="button" onClick={() => { startNewGame(); setScreen('game') }}>
+          <button className="topbar-puzzles" type="button" onClick={() => setScreen('puzzles')}>Bulmacalar</button>
+          <button className="topbar-play" type="button" onClick={() => { if (screen !== 'game') startNewGame(); setScreen('game') }}>
             {screen === 'game' ? 'Oyuna dön' : 'Oyna'} <span>↗</span>
           </button>
         </div>
@@ -455,6 +486,7 @@ export default function App() {
                 <p className="hero-description">Seviyene uyum sağlayan bir rakibe karşı oyna. Her hamlede düşünmek için zamanın olsun; oyun bitince koçunla birlikte güçlü kararlarını ve geliştirebileceğin anları keşfet.</p>
                 <div className="hero-actions">
                   <button className="hero-play" type="button" onClick={() => { startNewGame(); setScreen('game') }}>Oyuna başla <span>↗</span></button>
+                  <button className="hero-puzzles" type="button" onClick={() => setScreen('puzzles')}>Bulmaca çöz <span>→</span></button>
                   <span className="hero-meta">Ücretsiz · tek kişilik · tarayıcında</span>
                 </div>
                 <div className="hero-proof"><span>01</span> KENDİ RİTMİNDE <i /> <span>02</span> HER OYUNDAN BİR DERS</div>
@@ -482,6 +514,7 @@ export default function App() {
                 <article className="feature-card"><span className="feature-number">01</span><div className="feature-icon">♞</div><h3>Sana ayak uyduran rakip</h3><p>Stockfish destekli rakip, oyun gücünü tahmini seviyene göre ayarlar. Karar vermen için hamle arasında en az 3,5 saniye bırakır.</p></article>
                 <article className="feature-card"><span className="feature-number">02</span><div className="feature-icon">⌁</div><h3>Antrenör gibi analiz</h3><p>Oyun sonunda iyi hamlelerini ve öğretici anları gösterir; bir sonraki oyunda deneyebileceğin fikirler verir.</p></article>
                 <article className="feature-card"><span className="feature-number">03</span><div className="feature-icon">◫</div><h3>Kendi masanı kur</h3><p>Farklı tahta renkleri ve taş setleri arasından seç. Tahtayı çevir, oyunu kendi gözünle gör.</p></article>
+                <article className="feature-card"><span className="feature-number">04</span><div className="feature-icon">♧</div><h3>Seviyene göre bulmacalar</h3><p>On binlerce açık bulmacayı çöz. Doğru cevapların seviyeni yükseltsin, sıradaki taktiği senin için seçelim.</p></article>
               </div>
             </section>
             <footer className="home-footer"><span>HAMLE <i>·</i> HER OYUNDA BİR ADIM</span><span>OYUNUN SANA AİT. GELİŞİM DE ÖYLE.</span></footer>
@@ -532,6 +565,14 @@ export default function App() {
                           kingInCheck === square && 'check-square',
                         ].filter(Boolean).join(' ')}
                         onClick={() => handleSquareClick(square)}
+                        draggable={Boolean(boardReady && piece?.color === 'w')}
+                        onDragStart={(event) => handlePieceDragStart(event, square)}
+                        onDragOver={(event) => { if (legalTargets.includes(square)) event.preventDefault() }}
+                        onDrop={(event) => {
+                          event.preventDefault()
+                          const from = event.dataTransfer.getData('text/plain') as Square
+                          if (from && legalTargets.includes(square)) requestUserMove(from, square)
+                        }}
                       >
                         {isFileLabel && <span className="coordinate coordinate-file">{file}</span>}
                         {isRankLabel && <span className="coordinate coordinate-rank">{rank}</span>}
@@ -553,7 +594,7 @@ export default function App() {
             </div>
 
             <div className="board-actions">
-              <div className="board-hint"><span className="hint-icon">↗</span> Taşı seç, gideceği kareye dokun.</div>
+              <div className="board-hint"><span className="hint-icon">↗</span> Taşı seçip kareye dokun veya sürükleyip bırak.</div>
               <div className="board-action-controls">
                 <div className="board-zoom" aria-label="Tahta boyutu"><button type="button" aria-label="Tahtayı küçült" disabled={boardScale <= .7} onClick={() => setBoardScale((size) => Math.max(.7, +(size - .1).toFixed(1)))}>−</button><span>{Math.round(boardScale * 100)}%</span><button type="button" aria-label="Tahtayı büyüt" disabled={boardScale >= 1.3} onClick={() => setBoardScale((size) => Math.min(1.3, +(size + .1).toFixed(1)))}>+</button></div>
                 <button className="subtle-button" type="button" onClick={() => setFlipped((value) => !value)} aria-label="Tahtayı çevir"><span>⟳</span> Çevir</button>
@@ -571,6 +612,16 @@ export default function App() {
               <p>{phase === 'review' ? reviewHeadline : 'Rakibin son hamlesine bak. Neyi tehdit ediyor? Önce bunu gör, sonra planını seç.'}</p>
               <div className="coach-signature"><span /> {phase === 'review' ? 'OYUN ANALİZİ' : 'HAMLE KOÇU'}</div>
             </div>
+
+            {phase === 'review' && (
+              <div className="accuracy-card" aria-label="Maç doğruluğu">
+                <div><span>MAÇ DOĞRULUĞU</span><small>100 üzerinden</small></div>
+                <strong>{matchAccuracy === null ? '—' : matchAccuracy}<i>/100</i></strong>
+                <p>{matchAccuracy === null
+                  ? 'Bu oyunda yeterli motor değerlendirmesi bulunmuyor.'
+                  : "Stockfish'in değerlendirdiği " + evaluatedCoachMoves.length + " beyaz hamlesinden tahmin edildi."}</p>
+              </div>
+            )}
 
             <div className="moves-card">
               <div className="section-heading"><strong>{phase === 'review' ? 'ÖNE ÇIKAN HAMLELER' : 'HAMLELER'}</strong><span>{moveLog.length} hamle</span></div>
@@ -644,7 +695,7 @@ export default function App() {
             {phase === 'playing' ? (
               <div className="panel-footer">
                 <span className="engine-status"><span className={`engine-dot engine-${engineStatus}`} />{engineStatus === 'ready' ? 'Stockfish aktif' : engineStatus === 'loading' ? 'Motor yükleniyor' : 'Yerel motor'}</span>
-                <button type="button" className="resign-button" onClick={resignGame} disabled={moveLog.length === 0 || aiThinking || (engineStatus === 'ready' && baseline?.fen !== fen)}>Oyunu bitir</button>
+                <button type="button" className="resign-button" onClick={resignGame} disabled={moveLog.length === 0 || aiThinking || (engineStatus === 'ready' && baseline?.fen !== fen)}><span aria-hidden="true">■</span> Oyunu bitir</button>
               </div>
             ) : (
               <div className="review-actions">
@@ -657,6 +708,9 @@ export default function App() {
 
         <footer className="page-footer"><span>HAMLE <i>·</i> HER OYUNDA BİR ADIM</span><span>OYUNUN SANA AİT. GELİŞİM DE ÖYLE.</span></footer>
           </main>
+        </section>
+        <section className={`screen puzzle-screen ${screen === 'puzzles' ? 'screen-active' : ''}`} aria-hidden={screen !== 'puzzles'}>
+          {screen === 'puzzles' && <PuzzleRoom boardTheme={boardTheme} pieceSet={pieceSet} onBack={() => setScreen('home')} />}
         </section>
       </div>
 
