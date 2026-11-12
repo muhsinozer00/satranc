@@ -4,7 +4,8 @@ import { StockfishEngine, type EngineLine, type EngineResult } from './engine'
 
 type EngineStatus = 'loading' | 'ready' | 'failed'
 type GamePhase = 'playing' | 'review'
-type BoardTheme = 'sage' | 'sand' | 'slate'
+type BoardTheme = 'sage' | 'sand' | 'slate' | 'ocean' | 'rose' | 'wood'
+type PieceSet = 'livius' | 'meridian' | 'meridian_shaded'
 type Grade = 'sharp' | 'good' | 'inaccuracy' | 'mistake' | 'blunder'
 
 type LoggedMove = {
@@ -27,15 +28,19 @@ type SearchSnapshot = {
   result: EngineResult
 }
 
-const PIECES: Record<string, string> = {
-  wk: '♔', wq: '♕', wr: '♖', wb: '♗', wn: '♘', wp: '♙',
-  bk: '♚', bq: '♛', br: '♜', bb: '♝', bn: '♞', bp: '♟',
-}
-
 const THEMES: { id: BoardTheme; name: string; detail: string }[] = [
   { id: 'sage', name: 'Adaçayı', detail: 'sakin yeşil' },
   { id: 'sand', name: 'Kum', detail: 'sıcak doğal' },
   { id: 'slate', name: 'Gece', detail: 'soğuk taş' },
+  { id: 'ocean', name: 'Okyanus', detail: 'mavi serin' },
+  { id: 'rose', name: 'Gül', detail: 'yumuşak pembe' },
+  { id: 'wood', name: 'Ahşap', detail: 'klasik ceviz' },
+]
+
+const PIECE_SETS: { id: PieceSet; name: string; detail: string }[] = [
+  { id: 'livius', name: 'Livius', detail: 'modern' },
+  { id: 'meridian', name: 'Meridian', detail: 'klasik' },
+  { id: 'meridian_shaded', name: 'Gölgeli', detail: 'yumuşak' },
 ]
 
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
@@ -145,6 +150,7 @@ function coachingText(move: CoachMove) {
 }
 
 export default function App() {
+  const [screen, setScreen] = useState<'home' | 'game'>('home')
   const [fen, setFen] = useState(() => new Chess().fen())
   const [phase, setPhase] = useState<GamePhase>('playing')
   const [engineStatus, setEngineStatus] = useState<EngineStatus>('loading')
@@ -153,6 +159,7 @@ export default function App() {
   const [legalTargets, setLegalTargets] = useState<Square[]>([])
   const [aiThinking, setAiThinking] = useState(false)
   const [boardTheme, setBoardTheme] = useState<BoardTheme>('sage')
+  const [pieceSet, setPieceSet] = useState<PieceSet>('livius')
   const [flipped, setFlipped] = useState(false)
   const [playerRating, setPlayerRating] = useState(1050)
   const [moveLog, setMoveLog] = useState<LoggedMove[]>([])
@@ -171,7 +178,7 @@ export default function App() {
   const waitingLabel = phase === 'review'
     ? 'Oyun tamamlandı'
     : aiThinking
-      ? 'Rakip düşünüyor'
+      ? 'Rakip düşünüyor · acele yok'
       : engineStatus === 'loading'
         ? 'Rakip hazırlanıyor'
         : engineStatus === 'ready' && baseline?.fen !== fen
@@ -245,6 +252,7 @@ export default function App() {
     }
 
     setAiThinking(true)
+    const aiTurnStartedAt = performance.now()
     const canUseEngine = engineStatus === 'ready' && engineRef.current !== null
     let response: EngineResult | null = null
 
@@ -256,6 +264,8 @@ export default function App() {
         setEngineStatus('failed')
       }
     }
+    const remainingThinkTime = Math.max(0, 5000 - (performance.now() - aiTurnStartedAt))
+    if (remainingThinkTime > 0) await new Promise((resolve) => window.setTimeout(resolve, remainingThinkTime))
     if (generation !== gameGeneration.current) return
 
     let moveLoss: number | null = null
@@ -387,30 +397,69 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a className="brand" href="#top" aria-label="Hamle ana sayfa">
+        <button className="brand" type="button" onClick={() => setScreen('home')} aria-label="Hamle ana sayfa">
           <span className="brand-mark">♞</span>
           <span>hamle<span className="brand-period">.</span></span>
-        </a>
+        </button>
         <div className="topbar-right">
-          <span className="beta-pill"><span className="status-dot" /> ERKEN ERİŞİM</span>
-          <span className="avatar">M</span>
+          <span className="beta-pill"><span className="status-dot" /> KİŞİSEL ANTRENMAN</span>
+          <button className="topbar-play" type="button" onClick={() => { startNewGame(); setScreen('game') }}>
+            {screen === 'game' ? 'Oyuna dön' : 'Oyna'} <span>↗</span>
+          </button>
         </div>
       </header>
 
-      <main id="top" className="main-content">
-        <section className="intro-row">
-          <div>
-            <p className="eyebrow">KİŞİSEL SATRANÇ ANTRENÖRÜN</p>
-            <h1>Her oyun, yeni bir <span>fikir.</span></h1>
-            <p className="intro-copy">Sana ayak uyduran bir rakiple oyna. Oyun sonunda, bir sonraki adımını birlikte bulalım.</p>
-          </div>
-          <div className="intro-note">
-            <span className="note-spark">✳</span>
-            <span>Bir oyun. Kişisel analiz.<br /><strong>Gelişim senin ritminde.</strong></span>
-          </div>
+      <div className="screen-stage">
+        <section className={`screen home-screen ${screen === 'home' ? 'screen-active' : ''}`} aria-hidden={screen !== 'home'}>
+          <main className="home-content">
+            <section className="hero-section">
+              <div className="hero-copy">
+                <p className="eyebrow"><span className="eyebrow-mark">✳</span> HAMLE · KİŞİSEL SATRANÇ ATÖLYESİ</p>
+                <h1>Bir sonraki iyi hamlen <span>burada başlar.</span></h1>
+                <p className="hero-description">Seviyene uyum sağlayan bir rakibe karşı oyna. Her hamlede düşünmek için zamanın olsun; oyun bitince koçunla birlikte güçlü kararlarını ve geliştirebileceğin anları keşfet.</p>
+                <div className="hero-actions">
+                  <button className="hero-play" type="button" onClick={() => { startNewGame(); setScreen('game') }}>Oyuna başla <span>↗</span></button>
+                  <span className="hero-meta">Ücretsiz · tek kişilik · tarayıcında</span>
+                </div>
+                <div className="hero-proof"><span>01</span> KENDİ RİTMİNDE <i /> <span>02</span> HER OYUNDAN BİR DERS</div>
+              </div>
+              <div className={`hero-visual theme-${boardTheme}`} aria-hidden="true">
+                <div className="hero-visual-glow" />
+                <div className="hero-visual-card">
+                  <div className="hero-visual-top"><span>BUGÜNÜN TAHTASI</span><span className="hero-live-dot" /></div>
+                  <div className="hero-mini-board">
+                    {['wq', 'bk', 'wn', 'bp', 'br', 'wb', 'bq', 'wp', 'wk', 'bb', 'wq', 'bn', 'wp', 'br', 'bp', 'wk'].map((piece, index) => (
+                      <div className={`hero-mini-square ${Math.floor(index / 4) % 2 === index % 2 ? 'mini-dark' : 'mini-light'}`} key={index}>
+                        {index % 3 !== 1 && <img src={`${import.meta.env.BASE_URL}pieces/${pieceSet}/${piece}.svg`} alt="" />}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="hero-visual-bottom"><span>♘</span><span>Bir hamle, yeni bir fikir.</span><span>↗</span></div>
+                </div>
+                <div className="hero-float-note"><span className="hero-note-icon">✳</span><span><strong>ACELE YOK</strong><small>Rakip 5 saniye bekler.</small></span></div>
+                <span className="hero-orbit orbit-one" /><span className="hero-orbit orbit-two" />
+              </div>
+            </section>
+
+            <section className="how-section" id="features">
+              <div className="how-heading"><div><p className="eyebrow">NASIL ÇALIŞIR?</p><h2>Oyna, düşün, <span>geliş.</span></h2></div><p>Satranç öğrenmek için kusursuz oynaman gerekmez. Her oyun sana yeni bir şey öğretir.</p></div>
+              <div className="feature-grid">
+                <article className="feature-card"><span className="feature-number">01</span><div className="feature-icon">♞</div><h3>Sana ayak uyduran rakip</h3><p>Stockfish destekli rakip, oyun gücünü tahmini seviyene göre ayarlar. Karar vermen için hamle arasında en az 5 saniye bırakır.</p></article>
+                <article className="feature-card"><span className="feature-number">02</span><div className="feature-icon">⌁</div><h3>Antrenör gibi analiz</h3><p>Oyun sonunda iyi hamlelerini ve öğretici anları gösterir; bir sonraki oyunda deneyebileceğin fikirler verir.</p></article>
+                <article className="feature-card"><span className="feature-number">03</span><div className="feature-icon">◫</div><h3>Kendi masanı kur</h3><p>Farklı tahta renkleri ve taş setleri arasından seç. Tahtayı çevir, oyunu kendi gözünle gör.</p></article>
+              </div>
+            </section>
+            <footer className="home-footer"><span>HAMLE <i>·</i> HER OYUNDA BİR ADIM</span><span>OYUNUN SANA AİT. GELİŞİM DE ÖYLE.</span></footer>
+          </main>
         </section>
 
-        <section className="game-layout" aria-label="Satranç oyunu">
+        <section className={`screen game-screen ${screen === 'game' ? 'screen-active' : ''}`} aria-hidden={screen !== 'game'}>
+          <main id="top" className="main-content">
+            <section className="game-heading">
+              <div><p className="eyebrow">HAMLE · ANTRENMAN MASASI</p><h1>Tahta senin. <span>Acele yok.</span></h1></div>
+              <button className="back-home" type="button" onClick={() => setScreen('home')}>← Ana menü</button>
+            </section>
+            <section className="game-layout" aria-label="Satranç oyunu">
           <div className="board-column">
             <div className="player-strip opponent-strip">
               <div className="player-identity">
@@ -451,7 +500,7 @@ export default function App() {
                       >
                         {isFileLabel && <span className="coordinate coordinate-file">{file}</span>}
                         {isRankLabel && <span className="coordinate coordinate-rank">{rank}</span>}
-                        {piece && <span className={`piece ${piece.color === 'w' ? 'white-piece' : 'black-piece'}`}>{PIECES[`${piece.color}${piece.type}`]}</span>}
+                        {piece && <img className={`piece piece-svg ${piece.color === 'w' ? 'white-piece' : 'black-piece'}`} src={`${import.meta.env.BASE_URL}pieces/${pieceSet}/${piece.color}${piece.type}.svg`} alt="" draggable="false" />}
                         {isTarget && <span className={isCapture ? 'move-ring' : 'move-dot'} />}
                       </button>
                     )
@@ -527,9 +576,18 @@ export default function App() {
               <div className="section-heading"><strong>TAHTANI KİŞİSELLEŞTİR</strong><span>01 / 02</span></div>
               <div className="theme-options" role="group" aria-label="Tahta renkleri">
                 {THEMES.map((theme) => (
-                  <button key={theme.id} type="button" className={`theme-option ${boardTheme === theme.id ? 'theme-selected' : ''}`} onClick={() => setBoardTheme(theme.id)} aria-pressed={boardTheme === theme.id}>
+                  <button key={theme.id} type="button" title={theme.detail} className={`theme-option ${boardTheme === theme.id ? 'theme-selected' : ''}`} onClick={() => setBoardTheme(theme.id)} aria-pressed={boardTheme === theme.id}>
                     <span className={`theme-swatch swatch-${theme.id}`}><i /><i /><i /><i /></span>
                     <span className="theme-name">{theme.name}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="section-heading piece-set-heading"><strong>TAŞ STİLİ</strong><span>02 / 02</span></div>
+              <div className="piece-options" role="group" aria-label="Taş görünümü">
+                {PIECE_SETS.map((set) => (
+                  <button key={set.id} type="button" className={`piece-option ${pieceSet === set.id ? 'piece-option-selected' : ''}`} onClick={() => setPieceSet(set.id)} aria-pressed={pieceSet === set.id} title={set.detail}>
+                    <span className="piece-option-preview"><img src={`${import.meta.env.BASE_URL}pieces/${set.id}/wk.svg`} alt="" /><img src={`${import.meta.env.BASE_URL}pieces/${set.id}/bn.svg`} alt="" /></span>
+                    <span>{set.name}</span>
                   </button>
                 ))}
               </div>
@@ -550,7 +608,9 @@ export default function App() {
         </section>
 
         <footer className="page-footer"><span>HAMLE <i>·</i> HER OYUNDA BİR ADIM</span><span>OYUNUN SANA AİT. GELİŞİM DE ÖYLE.</span></footer>
-      </main>
+          </main>
+        </section>
+      </div>
 
       {pendingPromotion && (
         <div className="modal-backdrop" role="presentation">
@@ -559,7 +619,7 @@ export default function App() {
             <h2 id="promotion-title">Piyonun hangi taşa dönüşsün?</h2>
             <div className="promotion-options">
               {(['q', 'r', 'b', 'n'] as const).map((type) => (
-                <button key={type} type="button" onClick={() => void playUserMove(pendingPromotion.from, pendingPromotion.to, type)} aria-label={{ q: 'Vezir', r: 'Kale', b: 'Fil', n: 'At' }[type]}>{PIECES[`w${type}`]}</button>
+                <button key={type} type="button" onClick={() => void playUserMove(pendingPromotion.from, pendingPromotion.to, type)} aria-label={{ q: 'Vezir', r: 'Kale', b: 'Fil', n: 'At' }[type]}><img src={`${import.meta.env.BASE_URL}pieces/${pieceSet}/w${type}.svg`} alt="" /></button>
               ))}
             </div>
           </div>

@@ -1,0 +1,4 @@
+Chess piece artwork: Martin Sedlák, CC0 / public domain.
+Source: https://github.com/kmar/chess_svg_piece_sets
+Included sets: livius, meridian, meridian_shaded.
+The artwork may be freely bundled with programs, including commercial programs.
