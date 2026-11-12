@@ -1,0 +1,4 @@
+node_modules/
+dist/
+public/engine/stockfish.js
+public/engine/stockfish.wasm
