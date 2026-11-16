@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Chess, type Square } from 'chess.js'
 import type { BoardTheme, PieceSet } from './types'
+import { useBoardTouch } from './useBoardTouch'
 
 type PuzzleRecord = {
   id: string
@@ -73,11 +74,14 @@ function getShard(bucket: number) {
 
 function themeLabel(theme: string) {
   const labels: Record<string, string> = {
+    crushing: 'Kazanç fırsatı', kingsideAttack: 'Şah kanadı saldırısı', queensideAttack: 'Vezir kanadı saldırısı',
+    clearance: 'Hat açma', deflection: 'Saptırma', attraction: 'Çekme', interference: 'Araya girme',
+    backRankMate: 'Arka yatay matı', smotheredMate: 'Boğmaca matı',
     advantage: 'Avantaj', endgame: 'Oyun sonu', fork: 'Çatal', pin: 'Açmaz',
     mate: 'Mat', mateIn1: 'Tek hamlede mat', mateIn2: 'İki hamlede mat',
     mateIn3: 'Üç hamlede mat', middlegame: 'Oyun ortası', short: 'Kısa',
     long: 'Uzun', sacrifice: 'Fedakârlık', hangingPiece: 'Savunmasız taş',
-    discoveredAttack: 'Açmazdan saldırı', defensiveMove: 'Savunma', promotion: 'Terfi',
+    discoveredAttack: 'Açarak saldırı', defensiveMove: 'Savunma', promotion: 'Terfi',
     skewer: 'Şiş', trappedPiece: 'Sıkışmış taş', doubleCheck: 'Çifte şah',
   }
   return labels[theme] ?? theme.replace(/[A-Z]/g, (letter) => ' ' + letter).toLocaleLowerCase('tr-TR')
@@ -102,6 +106,10 @@ export default function PuzzleRoom({ boardTheme, pieceSet, onBack }: Props) {
   const [blackBottom, setBlackBottom] = useState(false)
   const [responsePending, setResponsePending] = useState(false)
   const responseTimer = useRef<number | null>(null)
+  const loadGeneration = useRef(0)
+  const answered = useRef(false)
+  const hadMistake = useRef(false)
+  const inputLock = useRef(false)
 
   const game = useMemo(() => new Chess(positionFen), [positionFen])
   const puzzleLine = puzzle?.moves.slice(1) ?? []
@@ -115,6 +123,7 @@ export default function PuzzleRoom({ boardTheme, pieceSet, onBack }: Props) {
   useEffect(() => {
     void loadNextPuzzle()
     return () => {
+      loadGeneration.current += 1
       if (responseTimer.current !== null) window.clearTimeout(responseTimer.current)
     }
     // Load one puzzle when this screen opens; later loads happen from the next button.
@@ -122,6 +131,8 @@ export default function PuzzleRoom({ boardTheme, pieceSet, onBack }: Props) {
   }, [])
 
   async function loadNextPuzzle() {
+    const generation = ++loadGeneration.current
+    inputLock.current = true
     setStatus('loading')
     setFeedback('Seviyene uygun bir bulmaca hazırlanıyor.')
     setSelectedSquare(null)
@@ -129,16 +140,19 @@ export default function PuzzleRoom({ boardTheme, pieceSet, onBack }: Props) {
     setResponsePending(false)
     try {
       const index = await getIndex()
+      if (generation !== loadGeneration.current) return
       setPoolSize(index.accepted)
       const rankedShards = [...index.ratings].sort((a, b) =>
         Math.abs(a.bucket + 50 - session.rating) - Math.abs(b.bucket + 50 - session.rating))
       const loaded: PuzzleRecord[] = []
       for (const shard of rankedShards.slice(0, 7)) {
         try { loaded.push(...await getShard(shard.bucket)) } catch { /* Keep searching nearby ratings. */ }
+        if (generation !== loadGeneration.current) return
         const unseen = loaded.filter((item) => !session.seenIds.includes(item.id))
         if (unseen.some((item) => Math.abs(item.rating - session.rating) <= 140)) break
       }
 
+      if (generation !== loadGeneration.current) return
       let unseen = loaded.filter((item) => !session.seenIds.includes(item.id))
       if (!unseen.length) {
         setSession((current) => ({ ...current, seenIds: [] }))
@@ -153,6 +167,9 @@ export default function PuzzleRoom({ boardTheme, pieceSet, onBack }: Props) {
       const chosen = options[Math.floor(Math.random() * Math.min(options.length, 350))]
       const start = new Chess(chosen.fen)
       start.move(moveInput(chosen.moves[0]))
+      answered.current = false
+      hadMistake.current = false
+      inputLock.current = false
       setPuzzle(chosen)
       setPositionFen(start.fen())
       setBlackBottom(start.turn() === 'b')
@@ -161,26 +178,33 @@ export default function PuzzleRoom({ boardTheme, pieceSet, onBack }: Props) {
       setStatus('ready')
       setFeedback('Sıra sende. Rakibin son hamlesinden sonra en güçlü devamı bul.')
     } catch {
+      if (generation !== loadGeneration.current) return
       setStatus('error')
       setFeedback('Bulmaca havuzu yüklenemedi. Bağlantını kontrol edip yeniden deneyebilirsin.')
     }
   }
 
   function markSolved() {
-    if (!puzzle) return
+    if (!puzzle || answered.current) return
+    answered.current = true
+    inputLock.current = true
+    const missed = hadMistake.current
     const gain = puzzle.rating > session.rating + 100 ? 18 : puzzle.rating < session.rating - 100 ? 9 : 14
     setStatus('solved')
-    setFeedback('Doğru çözüm. Bu seviyedeki bulmacalar için +'+gain+' puan kazandın.')
+    setFeedback(missed ? 'Çözümü tamamladın. Hatalı denemen nedeniyle bu bulmaca başarı puanına eklenmedi; seviyen 10 puan düşürüldü.' : 'İlk denemede doğru çözüm. +' + gain + ' puan kazandın.')
     setSession((current) => ({
       ...current,
-      rating: Math.max(500, Math.min(2800, current.rating + gain)),
-      solved: current.solved + 1,
+      rating: Math.max(500, Math.min(2800, current.rating + (missed ? -10 : gain))),
+      solved: current.solved + (missed ? 0 : 1),
       attempts: current.attempts + 1,
     }))
   }
 
   function finishWithSolution() {
-    if (!puzzle || status !== 'ready') return
+    if (!puzzle || status !== 'ready' || responsePending || inputLock.current || answered.current) return
+    answered.current = true
+    inputLock.current = true
+    if (responseTimer.current !== null) window.clearTimeout(responseTimer.current)
     const reveal = new Chess(positionFen)
     for (const uci of puzzleLine.slice(solutionPly)) reveal.move(moveInput(uci))
     setPositionFen(reveal.fen())
@@ -197,17 +221,22 @@ export default function PuzzleRoom({ boardTheme, pieceSet, onBack }: Props) {
   }
 
   function submitMove(from: Square, to: Square) {
-    if (!inputReady || !puzzle) return
+    if (!inputReady || !puzzle || inputLock.current || answered.current) return
+    if (!game.moves({ square: from, verbose: true }).some((move) => move.to === to)) return
     const expected = puzzleLine[solutionPly]
     if (!expected || expected.slice(0, 2) !== from || expected.slice(2, 4) !== to) {
+      hadMistake.current = true
       setFeedback('Bu hamle çözümü getirmiyor. Rakibin tehdidine ve korumasız taşlara tekrar bak.')
       setSelectedSquare(null)
       setLegalTargets([])
       return
     }
 
+    inputLock.current = true
     const next = new Chess(positionFen)
     try { next.move(moveInput(expected)) } catch {
+      inputLock.current = false
+      setStatus('error')
       setFeedback('Bu bulmacanın devamı yüklenemedi. Sonraki bulmacaya geçebilirsin.')
       return
     }
@@ -236,6 +265,7 @@ export default function PuzzleRoom({ boardTheme, pieceSet, onBack }: Props) {
       if (nextPlayerIndex >= puzzleLine.length) {
         markSolved()
       } else {
+        inputLock.current = false
         setSolutionPly(nextPlayerIndex)
         setResponsePending(false)
         setFeedback('Şimdi sıradaki taktik hamleyi bul.')
@@ -270,6 +300,7 @@ export default function PuzzleRoom({ boardTheme, pieceSet, onBack }: Props) {
     setLegalTargets(game.moves({ square, verbose: true }).map((move) => move.to))
   }
 
+  const touchHandlers = useBoardTouch(game, inputReady && !inputLock.current, submitMove)
   const displayedRanks = blackBottom ? [...RANKS].reverse() : RANKS
   const displayedFiles = blackBottom ? [...FILES].reverse() : FILES
 
@@ -292,21 +323,22 @@ export default function PuzzleRoom({ boardTheme, pieceSet, onBack }: Props) {
           </div>
 
           <div className={'board-frame theme-' + boardTheme + ' puzzle-board-frame'}>
-            <div className="chess-board puzzle-board" role="grid" aria-label="Bulmaca satranç tahtası">
+            <div {...touchHandlers} className="chess-board puzzle-board" role="grid" aria-label="Bulmaca satranç tahtası">
               {displayedRanks.flatMap((rank, row) => displayedFiles.map((file, col) => {
                 const square = (file + rank) as Square
                 const piece = game.get(square)
                 const isSelected = selectedSquare === square
                 const isTarget = legalTargets.includes(square)
                 const isLight = (FILES.indexOf(file) + rank) % 2 === 0
-                const isFileLabel = blackBottom ? row === 7 : row === 7
-                const isRankLabel = blackBottom ? col === 7 : col === 0
+                const isFileLabel = row === 7
+                const isRankLabel = col === 0
                 const isDraggable = inputReady && piece?.color === game.turn()
                 return (
                   <button
                     type="button"
                     role="gridcell"
                     key={square}
+                    data-square={square}
                     aria-label={square + (piece ? ' ' + piece.color + ' ' + piece.type : '')}
                     className={['square', isLight ? 'light-square' : 'dark-square', isSelected && 'selected-square', isTarget && 'legal-target', isTarget && piece && 'capture-target'].filter(Boolean).join(' ')}
                     onClick={() => handleSquareClick(square)}
@@ -340,7 +372,7 @@ export default function PuzzleRoom({ boardTheme, pieceSet, onBack }: Props) {
             <span>KİŞİSEL BULMACA SEVİYEN</span>
             <strong>{session.rating}</strong>
             <div className="puzzle-level-track"><i style={{ width: Math.max(8, Math.min(100, (session.rating - 500) / 23)) + '%' }} /></div>
-            <small>Her doğru cevap seviyeni yükseltir.</small>
+            <small>İlk denemede çözmek seviyeni yükseltir.</small>
           </div>
 
           <div className={'puzzle-feedback ' + (status === 'solved' ? 'puzzle-feedback-success' : status === 'error' ? 'puzzle-feedback-error' : '')} role="status">
@@ -355,7 +387,7 @@ export default function PuzzleRoom({ boardTheme, pieceSet, onBack }: Props) {
 
           {status === 'ready' && (
             <div className="puzzle-actions">
-              <button className="primary-button" type="button" onClick={finishWithSolution}>Çözümü göster</button>
+              <button className="primary-button" type="button" onClick={finishWithSolution} disabled={responsePending}>Çözümü göster</button>
             </div>
           )}
           {(status === 'solved' || status === 'missed' || status === 'error') && (
@@ -366,7 +398,7 @@ export default function PuzzleRoom({ boardTheme, pieceSet, onBack }: Props) {
           {status === 'loading' && <div className="puzzle-loading"><i /> Yakın seviyeden bulmaca seçiliyor</div>}
 
           <div className="puzzle-stats">
-            <div><span>Çözülen</span><strong>{session.solved}</strong></div>
+            <div><span>İlk denemede</span><strong>{session.solved}</strong></div>
             <div><span>Deneme</span><strong>{session.attempts}</strong></div>
             <div><span>Doğruluk</span><strong>{session.attempts ? Math.round(session.solved / session.attempts * 100) : 0}%</strong></div>
           </div>

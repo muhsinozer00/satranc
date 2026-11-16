@@ -3,6 +3,11 @@ import { Chess, type Move, type Square } from 'chess.js'
 import { StockfishEngine, type EngineLine, type EngineResult } from './engine'
 import { playSound } from './sounds'
 import PuzzleRoom from './PuzzleRoom'
+import OpeningRoom from './OpeningRoom'
+import OpponentRoom from './OpponentRoom'
+import './responsive.css'
+import { useBoardTouch } from './useBoardTouch'
+import { replayGame, gamePgn } from './gameHistory'
 
 type EngineStatus = 'loading' | 'ready' | 'failed'
 type GamePhase = 'playing' | 'review'
@@ -143,16 +148,13 @@ function gameResult(game: Chess, resigned = false) {
 }
 
 function coachingText(move: CoachMove) {
-  if (!move.grade) return 'Motor bu hamleyi değerlendiremedi; yine de tahtadaki fikri gözden geçirebilirsin.'
-  if (move.grade === 'sharp') return `${move.san} ile konumsal avantajını korudun. Bu kararı verirken taş güvenliğini de iyi hesapladın.`
-  if (move.grade === 'good') return `${move.san} sağlam bir tercih. Planını bozmadın; benzer konumlarda bu fikri tekrar kullanabilirsin.`
-  if (move.grade === 'inaccuracy') return `Burada ${move.bestMove ?? 'daha etkin bir devam yolu'} daha fazla alan sağlayabilirdi. Hamleden önce rakibin tehditlerini de tara.`
-  if (move.grade === 'mistake') return `${move.bestMove ? `${move.bestMove} daha dirençliydi. ` : ''}Bu hamle rakibin baskısını artırdı. Bir sonraki turda önce şah tehditlerini ve korunmayan taşları kontrol et.`
-  return `${move.bestMove ? `${move.bestMove} kritik savunmaydı. ` : ''}Büyük bir fırsat kaçtı. Taşı oynatmadan önce rakibin her olası şahını, alışını ve saldırısını sırayla kontrol et.`
+  if (move.loss === null || !move.grade) return 'Bu hamle için güvenilir motor değerlendirmesi yok.'
+  const best = move.bestMove ? ' Motorun önerisi: ' + move.bestMove + '.' : ''
+  return move.san + ': ' + gradeLabel(move.grade) + '. En güçlü devamla karşılaştırıldığında yaklaşık ' + move.loss.toFixed(2) + ' piyon değerlendirme kaybı.' + best + ' Devam yollarını tahtada karşılaştır.'
 }
 
 export default function App() {
-  const [screen, setScreen] = useState<'home' | 'game' | 'puzzles'>('home')
+  const [screen, setScreen] = useState<'home' | 'game' | 'puzzles' | 'openings' | 'opponent'>('home')
   const [fen, setFen] = useState(() => new Chess().fen())
   const [phase, setPhase] = useState<GamePhase>('playing')
   const [engineStatus, setEngineStatus] = useState<EngineStatus>('loading')
@@ -174,13 +176,13 @@ export default function App() {
   const [reviewPly, setReviewPly] = useState(0)
   const engineRef = useRef<StockfishEngine | null>(null)
   const gameGeneration = useRef(0)
+  const moveLock = useRef(false)
+  const [engineEpoch, setEngineEpoch] = useState(0)
 
-  const game = useMemo(() => new Chess(fen), [fen])
+  const game = useMemo(() => replayGame(moveLog), [moveLog])
   const reviewGame = useMemo(() => {
     if (phase !== 'review') return game
-    const replay = new Chess()
-    for (const move of moveLog.slice(0, reviewPly)) replay.move(move.san)
-    return replay
+    return replayGame(moveLog, reviewPly)
   }, [phase, game, moveLog, reviewPly])
   const boardGame = phase === 'review' ? reviewGame : game
   const lastMove = phase === 'review' ? moveLog[reviewPly - 1] : moveLog.at(-1)
@@ -191,7 +193,7 @@ export default function App() {
     : null
   const matchAccuracy = averageMoveLoss === null ? null : Math.round(100 * Math.exp(-0.28 * Math.sqrt(averageMoveLoss)))
   const selectedReviewMove = reviewPly > 0 ? moveLog[reviewPly - 1] : null
-  const selectedReviewCoach = selectedReviewMove?.color === 'w' ? coachMoves.find((move) => move.uci.startsWith(`${selectedReviewMove.from}${selectedReviewMove.to}`)) : null
+  const selectedReviewCoach = selectedReviewMove?.color === 'w' ? coachMoves[Math.floor((reviewPly - 1) / 2)] : null
   const boardReady = phase === 'playing' && game.turn() === 'w' && !aiThinking &&
     (engineStatus === 'failed' || (engineStatus === 'ready' && baseline?.fen === fen))
   const waitingLabel = phase === 'review'
@@ -218,7 +220,7 @@ export default function App() {
       active = false
       engine.terminate()
     }
-  }, [])
+  }, [engineEpoch])
 
   useEffect(() => {
     if (phase === 'review') setReviewPly(moveLog.length)
@@ -254,16 +256,19 @@ export default function App() {
     return () => { active = false }
   }, [aiThinking, baseline, engineStatus, fen, game, phase])
 
+  useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' }) }, [screen])
+
   function clearSelection() {
     setSelectedSquare(null)
     setLegalTargets([])
   }
 
   async function playUserMove(from: Square, to: Square, promotion?: 'q' | 'r' | 'b' | 'n') {
-    if (!boardReady) return
+    if (!boardReady || moveLock.current) return
     const generation = gameGeneration.current
     const snapshot = baseline?.fen === fen ? baseline.result : null
-    const playedGame = new Chess(fen)
+    const engine = engineRef.current
+    const playedGame = replayGame(moveLog)
     let playedMove: Move
 
     try {
@@ -273,7 +278,8 @@ export default function App() {
       return
     }
 
-    const bestUci = snapshot?.lines[0]?.uci ?? snapshot?.bestMove ?? null
+    moveLock.current = true
+    const bestUci = snapshot?.bestMove ?? snapshot?.lines[0]?.uci ?? null
     const bestSan = sanForUci(fen, bestUci)
     if (soundsEnabled) playSound(playedMove.captured ? 'capture' : 'move')
     if (playedGame.isCheck() && soundsEnabled) playSound('check')
@@ -284,15 +290,13 @@ export default function App() {
     setMoveLog((current) => [...current, { san: playedMove.san, from: playedMove.from, to: playedMove.to, color: 'w' }])
 
     if (playedGame.isGameOver()) {
-      if (snapshot) {
         setCoachMoves((current) => [...current, {
           san: playedMove.san,
           uci: toUci(playedMove),
-          loss: playedGame.isCheckmate() ? 0 : null,
-          grade: playedGame.isCheckmate() ? 'sharp' : null,
+          loss: snapshot ? (playedGame.isCheckmate() ? 0 : Math.max(0, snapshot.scoreCp / 100)) : null,
+          grade: snapshot ? classifyMove(playedGame.isCheckmate() ? 0 : Math.max(0, snapshot.scoreCp / 100)) : null,
           bestMove: bestSan,
         }])
-      }
       setPhase('review')
       return
     }
@@ -304,9 +308,10 @@ export default function App() {
 
     if (canUseEngine) {
       try {
-        response = await engineRef.current!.search(playedGame.fen(), 10, 4)
+        response = await engine!.search(playedGame.fen(), 10, 4)
       } catch {
-        engineRef.current?.terminate()
+        if (generation !== gameGeneration.current || engine !== engineRef.current) return
+        engine?.terminate()
         setEngineStatus('failed')
       }
     }
@@ -318,7 +323,7 @@ export default function App() {
     let grade: Grade | null = null
     let nextRating = playerRating
     if (snapshot && response) {
-      moveLoss = Math.max(0, (snapshot.scoreCp + response.scoreCp) / 100)
+      moveLoss = toUci(playedMove) === snapshot.bestMove ? 0 : Math.max(0, (snapshot.scoreCp + response.scoreCp) / 100)
       grade = classifyMove(moveLoss)
       nextRating = adaptRating(playerRating, moveLoss)
       setPlayerRating(nextRating)
@@ -331,7 +336,7 @@ export default function App() {
       bestMove: bestSan,
     }])
 
-    const blackGame = new Chess(playedGame.fen())
+    const blackGame = playedGame
     const legalMoves = blackGame.moves({ verbose: true })
     const legalUcis = new Set(legalMoves.map(toUci))
     const selectedLine = response ? chooseAdaptiveLine(response.lines, legalUcis, nextRating) : null
@@ -365,14 +370,15 @@ export default function App() {
 
     if (engineStatus === 'ready' && engineRef.current) {
       try {
-        const nextSnapshot = await engineRef.current.search(blackGame.fen(), 9, 4)
+        const nextSnapshot = await engine!.search(blackGame.fen(), 9, 4)
         if (generation === gameGeneration.current) setBaseline({ fen: blackGame.fen(), result: nextSnapshot })
       } catch {
-        engineRef.current?.terminate()
+        if (generation !== gameGeneration.current || engine !== engineRef.current) return
+        engine?.terminate()
         setEngineStatus('failed')
       }
     }
-    if (generation === gameGeneration.current) setAiThinking(false)
+    if (generation === gameGeneration.current) { moveLock.current = false; setAiThinking(false) }
   }
 
   function handleSquareClick(square: Square) {
@@ -394,6 +400,8 @@ export default function App() {
   }
 
   function requestUserMove(from: Square, to: Square) {
+    if (!boardReady || moveLock.current || pendingPromotion) return
+    if (!game.moves({ square: from, verbose: true }).some((move) => move.to === to)) return
     const movingPiece = game.get(from)
     if (movingPiece?.type === 'p' && (to[1] === '8' || to[1] === '1')) {
       setPendingPromotion({ from, to })
@@ -415,6 +423,9 @@ export default function App() {
 
   function startNewGame() {
     gameGeneration.current += 1
+    moveLock.current = false
+    setEngineStatus('loading')
+    setEngineEpoch((value) => value + 1)
     const freshGame = new Chess()
     setFen(freshGame.fen())
     setPhase('playing')
@@ -441,7 +452,7 @@ export default function App() {
 
   async function copyPgn() {
     try {
-      await navigator.clipboard.writeText(game.pgn())
+      await navigator.clipboard.writeText(gamePgn(moveLog, resigned))
       setNotice('PGN kopyalandı')
     } catch {
       setNotice('PGN panoya kopyalanamadı')
@@ -449,10 +460,11 @@ export default function App() {
     window.setTimeout(() => setNotice(''), 2200)
   }
 
+  const touchHandlers = useBoardTouch(game, boardReady && !pendingPromotion, requestUserMove)
   const bestTeachingMoment = coachMoves.filter((move) => move.grade && move.grade !== 'sharp' && move.grade !== 'good')
     .sort((a, b) => (b.loss ?? 0) - (a.loss ?? 0))[0]
   const reviewHeadline = coachMoves.length === 0
-    ? 'Bu oyun tek hamlede sona erdi. Yeni bir oyun açıp birlikte inceleyebiliriz.'
+    ? 'Bu oyunda değerlendirilebilen bir hamle bulunmuyor. Yeni bir oyunla devam edebilirsin.'
     : bestTeachingMoment
       ? `En öğretici an ${bestTeachingMoment.san} hamlesiydi. ${bestTeachingMoment.bestMove ? `${bestTeachingMoment.bestMove} seçeneğini tekrar incele.` : 'Bir sonraki oyunda taş güvenliğini bir kez daha kontrol et.'}`
       : engineStatus === 'failed'
@@ -468,22 +480,22 @@ export default function App() {
         </button>
         <div className="topbar-right">
           <button className="sound-toggle" type="button" aria-pressed={soundsEnabled} onClick={() => setSoundsEnabled((enabled) => !enabled)}>{soundsEnabled ? '♫ Ses açık' : '♫ Ses kapalı'}</button>
-          <span className="beta-pill"><span className="status-dot" /> KİŞİSEL ANTRENMAN</span>
+          <nav className="main-nav" aria-label="Çalışma alanları"><button type="button" onClick={() => setScreen('openings')}>Açılışlar</button><button type="button" onClick={() => setScreen('opponent')}>Rakip analizi</button></nav>
           <button className="topbar-puzzles" type="button" onClick={() => setScreen('puzzles')}>Bulmacalar</button>
-          <button className="topbar-play" type="button" onClick={() => { if (screen !== 'game') startNewGame(); setScreen('game') }}>
+          <button className="topbar-play" type="button" onClick={() => { setScreen('game') }}>
             {screen === 'game' ? 'Oyuna dön' : 'Oyna'} <span>↗</span>
           </button>
         </div>
       </header>
 
       <div className="screen-stage">
-        <section className={`screen home-screen ${screen === 'home' ? 'screen-active' : ''}`} aria-hidden={screen !== 'home'}>
+        <section className={`screen home-screen ${screen === 'home' ? 'screen-active' : ''}`} inert={screen !== 'home'} aria-hidden={screen !== 'home'}>
           <main className="home-content">
             <section className="hero-section">
               <div className="hero-copy">
                 <p className="eyebrow"><span className="eyebrow-mark">✳</span> HAMLE · KİŞİSEL SATRANÇ ATÖLYESİ</p>
                 <h1>Bir sonraki iyi hamlen <span>burada başlar.</span></h1>
-                <p className="hero-description">Seviyene uyum sağlayan bir rakibe karşı oyna. Her hamlede düşünmek için zamanın olsun; oyun bitince koçunla birlikte güçlü kararlarını ve geliştirebileceğin anları keşfet.</p>
+                <p className="hero-description">Seviyene uyum sağlayan rakiple oyna, taktiklerini geliştir ve açılışlarını çalış. Turnuvaya hazırlanırken rakibinin oyunlarını yükle; tercih ettiği devam yollarını ve kaçırdığı fırsatları incele.</p>
                 <div className="hero-actions">
                   <button className="hero-play" type="button" onClick={() => { startNewGame(); setScreen('game') }}>Oyuna başla <span>↗</span></button>
                   <button className="hero-puzzles" type="button" onClick={() => setScreen('puzzles')}>Bulmaca çöz <span>→</span></button>
@@ -508,6 +520,7 @@ export default function App() {
               </div>
             </section>
 
+            <section className="training-entry" aria-label="Çalışma alanını seç"><button type="button" onClick={() => setScreen('openings')}><span>01 · AÇILIŞ LABORATUVARI</span><strong>İlk hamleden bir plan kur.</strong><p>Açılışları tahtada öğren, beyaz veya siyah taşlarla tekrar et.</p><b>Açılışları çalış →</b></button><button type="button" onClick={() => setScreen('opponent')}><span>02 · RAKİP HAZIRLIĞI</span><strong>Bir sonraki rakibini tanı.</strong><p>Oyunlarını yükle. Açılış tercihlerini ve motorun bulduğu hataları keşfet.</p><b>Oyunları incele →</b></button></section>
             <section className="how-section" id="features">
               <div className="how-heading"><div><p className="eyebrow">NASIL ÇALIŞIR?</p><h2>Oyna, düşün, <span>geliş.</span></h2></div><p>Satranç öğrenmek için kusursuz oynaman gerekmez. Her oyun sana yeni bir şey öğretir.</p></div>
               <div className="feature-grid">
@@ -521,7 +534,7 @@ export default function App() {
           </main>
         </section>
 
-        <section className={`screen game-screen ${screen === 'game' ? 'screen-active' : ''}`} aria-hidden={screen !== 'game'}>
+        <section className={`screen game-screen ${screen === 'game' ? 'screen-active' : ''}`} inert={screen !== 'game'} aria-hidden={screen !== 'game'}>
           <main id="top" className="main-content">
             <section className="game-heading">
               <div><p className="eyebrow">HAMLE · ANTRENMAN MASASI</p><h1>Tahta senin. <span>Acele yok.</span></h1></div>
@@ -538,7 +551,7 @@ export default function App() {
             </div>
 
             <div className={`board-frame theme-${boardTheme} ${flipped ? 'is-flipped' : ''}`}>
-              <div className="chess-board" role="grid" aria-label="Satranç tahtası">
+              <div {...touchHandlers} className="chess-board" role="grid" aria-label="Satranç tahtası">
                 {(flipped ? [...RANKS].reverse() : RANKS).flatMap((rank) =>
                   (flipped ? [...FILES].reverse() : FILES).map((file) => {
                     const square = `${file}${rank}` as Square
@@ -557,6 +570,7 @@ export default function App() {
                         type="button"
                         role="gridcell"
                         key={square}
+                        data-square={square}
                         aria-label={`${square}${piece ? ` ${piece.color === 'w' ? 'beyaz' : 'siyah'} ${piece.type}` : ''}`}
                         aria-disabled={!boardReady}
                         className={[
@@ -709,9 +723,11 @@ export default function App() {
         <footer className="page-footer"><span>HAMLE <i>·</i> HER OYUNDA BİR ADIM</span><span>OYUNUN SANA AİT. GELİŞİM DE ÖYLE.</span></footer>
           </main>
         </section>
-        <section className={`screen puzzle-screen ${screen === 'puzzles' ? 'screen-active' : ''}`} aria-hidden={screen !== 'puzzles'}>
+        <section className={`screen puzzle-screen ${screen === 'puzzles' ? 'screen-active' : ''}`} inert={screen !== 'puzzles'} aria-hidden={screen !== 'puzzles'}>
           {screen === 'puzzles' && <PuzzleRoom boardTheme={boardTheme} pieceSet={pieceSet} onBack={() => setScreen('home')} />}
         </section>
+        <section className={"screen " + (screen === 'openings' ? 'screen-active' : '')} inert={screen !== 'openings'} aria-hidden={screen !== 'openings'}>{screen === 'openings' && <OpeningRoom boardTheme={boardTheme} pieceSet={pieceSet} onBack={() => setScreen('home')} />}</section>
+        <section className={"screen " + (screen === 'opponent' ? 'screen-active' : '')} inert={screen !== 'opponent'} aria-hidden={screen !== 'opponent'}>{screen === 'opponent' && <OpponentRoom onBack={() => setScreen('home')} />}</section>
       </div>
 
       {pendingPromotion && (
