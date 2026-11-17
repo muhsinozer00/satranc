@@ -118,6 +118,23 @@ check('Unknown strategic reasons are not fabricated from a score', () => {
   assert.equal(explainFinding(finding).category, 'Daha güçlü devamı kaçırma')
 })
 
+
+const { scanTasks, phaseSummary } = loadTs('src/opponentScan.ts')
+check('Full scan includes games beyond five and moves beyond twelve', () => {
+  const game = new Chess()
+  for (let i=0;i<8;i++) for (const san of ['Nf3','Nf6','Ng1','Ng8']) game.move(san)
+  const games = Array.from({length:6},(_,i)=>({...collection.games[0],id:i+1,white:'Target',black:'Other',history:game.history({verbose:true})}))
+  assert.equal(scanTasks(games,'Target','quick').length,60)
+  assert.equal(scanTasks(games,'Target','full').length,96)
+  assert.equal(scanTasks(games,'Other','full').length,96)
+  const tasks=scanTasks(games,'Target','full')
+  const findings=tasks.map(task=>({...task,lossCp:0,bestSan:task.move.san,bestUci:task.move.from+task.move.to}))
+  const phases=phaseSummary(findings)
+  assert.equal(phases.reduce((sum,row)=>sum+row.total,0),96)
+  assert.ok(phases.find(row=>row.name==='Oyun ortası').total>0)
+  const completed=tasks.slice(0,17)
+  assert.deepEqual([...completed,...tasks.slice(completed.length)],tasks)
+})
 const timers = new Map()
 let nextTimer = 1
 globalThis.window = {

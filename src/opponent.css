@@ -122,3 +122,5 @@
 .opponent-insight-grid summary { cursor:pointer; font-size:12px; padding-top:12px; }
 .opponent-opening-evidence { display:grid; gap:10px; margin:16px 0; }
 @media(max-width:740px) { .opponent-summary { padding:16px; } }
+.opponent-mode { display:grid; gap:8px; margin-bottom:18px; color:#52624a; font-size:14px; }
+.opponent-mode select { padding:12px; border:1px solid #d5dfc8; border-radius:8px; background:#fffefa; font:inherit; }

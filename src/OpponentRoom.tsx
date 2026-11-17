@@ -2,17 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Chess } from 'chess.js'
 import { StockfishEngine, type EngineResult } from './engine'
 import {
-  MAX_PGN_BYTES, formattedLine, openingGroups, parsePgnCollection, playerColor, playerNames,
+  MAX_PGN_BYTES, formattedLine, openingGroups, parsePgnCollection, playerNames,
   repeatedFindings, selectedGames, variationGroups,
   type ColorFilter, type EngineFinding, type ImportedGame,
 } from './opponentAnalysis'
 import './opponent.css'
+import { scanTasks, phaseSummary, type ScanMode } from './opponentScan'
 import OpponentSummary from './OpponentSummary'
 import { explainFinding, opponentInsights } from './opponentInsights'
 
 const EXAMPLE_PGN = '[Event "Örnek çalışma oyunu 1"]\n[White "Çalışma Rakibi"]\n[Black "Örnek Oyuncu"]\n[Result "*"]\n\n1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. d3 Nf6 5. Nc3 d6 6. O-O O-O 7. Bg5 h6 8. Bh4 Be6 *\n\n[Event "Örnek çalışma oyunu 2"]\n[White "Çalışma Rakibi"]\n[Black "Örnek Oyuncu"]\n[Result "*"]\n\n1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. d3 Nf6 5. Nc3 d6 6. Bg5 h6 7. Bh4 g5 8. Bg3 h5 *\n\n[Event "Örnek çalışma oyunu 3"]\n[White "Örnek Oyuncu"]\n[Black "Çalışma Rakibi"]\n[Result "*"]\n\n1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Nf3 O-O 6. Be2 e5 7. O-O Nc6 *'
-const GAME_LIMIT = 5
-const MOVES_PER_GAME = 12
 const SEARCH_DEPTH = 10
 type ScanStatus = 'idle' | 'running' | 'done' | 'cancelled' | 'error'
 
@@ -48,6 +47,9 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
   const [importNote, setImportNote] = useState('')
   const [importError, setImportError] = useState('')
   const [loadingFile, setLoadingFile] = useState(false)
+  const [scanMode, setScanMode] = useState<ScanMode>('quick')
+  const completed = useRef<EngineFinding[]>([])
+  const searchCache = useRef(new Map<string, EngineResult>())
   const [status, setStatus] = useState<ScanStatus>('idle')
   const [scanMessage, setScanMessage] = useState('')
   const [findings, setFindings] = useState<EngineFinding[]>([])
@@ -65,7 +67,7 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
   const repeats = useMemo(() => repeatedFindings(findings), [findings])
   const noteworthy = useMemo(() => [...findings].filter((finding) => finding.lossCp >= 50).sort((a, b) => b.lossCp - a.lossCp), [findings])
   const displayedFindings = noteworthy.slice(0, 60)
-  const activeFinding = displayedFindings.find((finding) => findingKey(finding) === activeKey) ?? displayedFindings[0]
+  const activeFinding = findings.find((finding) => findingKey(finding) === activeKey) ?? displayedFindings[0]
   const running = status === 'running'
   const significant = findings.filter((finding) => finding.lossCp >= 100).length
 
@@ -79,6 +81,8 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
     generation.current += 1
     engineRef.current?.terminate()
     engineRef.current = null
+    completed.current = []
+    searchCache.current.clear()
     setStatus('idle')
     setScanMessage('')
     setFindings([])
@@ -133,27 +137,22 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
     engineRef.current?.terminate()
     engineRef.current = null
     setStatus('cancelled')
-    setScanMessage('Tarama durduruldu. Aşağıdaki sonuçlar yalnızca tamamlanan hamleleri kapsıyor.')
+    setScanMessage('Tarama duraklatıldı. Tamamlanan hamleler korundu; kaldığın yerden devam edebilirsin.')
   }
 
-  async function analyzeGames() {
+  async function analyzeGames(resume = false) {
     if (running || !filteredGames.length) return
-    const scanGames = filteredGames.slice(0, GAME_LIMIT)
-    const tasks = scanGames.flatMap((game) => {
-      const side = playerColor(game, player)
-      return game.history.map((move, index) => ({ game, move, ply: index + 1 }))
-        .filter(({ move }) => move.color === side).slice(0, MOVES_PER_GAME)
-    })
+    const tasks = scanTasks(filteredGames, player, scanMode)
+    const gameCount = new Set(tasks.map(task => task.game.id)).size
     if (!tasks.length) return
     const run = ++generation.current
     const engine = new StockfishEngine(() => {})
     engineRef.current = engine
     setStatus('running')
-    setFindings([])
-    setActiveKey('')
-    setProgress({ done: 0, total: tasks.length, games: scanGames.length })
+    if (!resume) { completed.current = []; searchCache.current.clear(); setFindings([]); setActiveKey('') }
+    setProgress({ done: completed.current.length, total: tasks.length, games: gameCount })
     setScanMessage('Stockfish hazırlanıyor. Oyunlar bu tarayıcıda inceleniyor.')
-    const cache = new Map<string, EngineResult>()
+    const cache = searchCache.current
     const search = async (fen: string) => {
       const cached = cache.get(fen)
       if (cached) return cached
@@ -165,7 +164,7 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
     try {
       await engine.initialize()
       if (run !== generation.current) return
-      for (let index = 0; index < tasks.length; index += 1) {
+      for (let index = completed.current.length; index < tasks.length; index += 1) {
         if (run !== generation.current) return
         const task = tasks[index]
         setScanMessage('Oyun ' + task.game.id + ' · ' + task.move.before.split(' ')[5] + '. hamle inceleniyor.')
@@ -188,12 +187,13 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
         }
         let bestSan = before.bestMove
         try { bestSan = new Chess(task.move.before).move(uciInput(before.bestMove)).san } catch { /* Keep the engine's UCI move if no SAN can be produced. */ }
-        setFindings((current) => [...current, { ...task, replyUci, lossCp, bestSan, bestUci: before.bestMove }])
-        setProgress({ done: index + 1, total: tasks.length, games: scanGames.length })
+        completed.current.push({ ...task, replyUci, lossCp, bestSan, bestUci: before.bestMove })
+        setFindings([...completed.current])
+        setProgress({ done: index + 1, total: tasks.length, games: gameCount })
       }
       if (run === generation.current) {
         setStatus('done')
-        setScanMessage('Tarama tamamlandı. Sonuçlar incelenen açılış ve erken oyun hamleleriyle sınırlı.')
+        setScanMessage(scanMode === 'full' ? 'Tam maç analizi tamamlandı. Seçili oyunlarda oyuncunun tüm hamleleri incelendi.' : 'Hızlı tarama tamamlandı. İlk 5 oyundaki ilk 12 oyuncu hamlesi incelendi.')
       }
     } catch {
       if (run === generation.current) {
@@ -227,7 +227,8 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
       '',
       'MOTOR TARAMASI',
       'Durum: ' + status + ' · ' + progress.done + '/' + progress.total + ' hamle · derinlik ' + SEARCH_DEPTH,
-      'En fazla ilk ' + GAME_LIMIT + ' oyun ve her oyunda oyuncunun ilk ' + MOVES_PER_GAME + ' hamlesi incelenir.',
+      scanMode === 'full' ? 'Tam maç analizi: seçili oyunlarda oyuncunun tüm hamleleri.' : 'Hızlı tarama: ilk 5 oyun, ilk 12 oyuncu hamlesi.',
+      ...phaseSummary(findings).map(row => row.name + ': ' + row.errors + '/' + row.total + ' belirgin hata'),
       ...noteworthy.map((finding) => 'Oyun ' + finding.game.id + ' · ' + finding.game.white + ' - ' + finding.game.black + ' · ' + finding.move.before.split(' ')[5] + '. ' + finding.move.san + ' · yaklaşık kayıp: ' + lossLabel(finding.lossCp) + ' · motor önerisi: ' + finding.bestSan),
       '',
       'Bu gözlemler yalnızca yüklenen örneklemi kapsar. Motor farkları sınırlı derinlikte tahmindir.',
@@ -302,9 +303,10 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
           </section>
 
           <section className="opponent-card opponent-engine-section">
+            <label className="opponent-mode">Analiz kapsamı<select value={scanMode} disabled={running} onChange={(event) => { resetAnalysis(); setScanMode(event.target.value as ScanMode) }}><option value="quick">Hızlı tarama</option><option value="full">Tam maç analizi</option></select></label>
             <div className="opponent-scan-heading">
-              <div><span className="opponent-step">03 / MOTORLA İNCELE</span><h2>Tekrar eden hataları ara.</h2><p className="opponent-subcopy">Seçili listenin ilk {GAME_LIMIT} oyununda rakibin ilk {MOVES_PER_GAME} hamlesini Stockfish ile karşılaştırır. Oyun sonları bu taramaya dahil değildir.</p></div>
-              {running ? <button key="cancel-scan" className="secondary-button" type="button" onClick={cancelScan}>Taramayı durdur</button> : <button key="start-scan" className="primary-button" type="button" disabled={!filteredGames.length} onClick={() => void analyzeGames()}>{findings.length ? 'Yeniden tara' : 'Motor taramasını başlat'} <span>↗</span></button>}
+              <div><span className="opponent-step">03 / MOTORLA İNCELE</span><h2>Tekrar eden hataları ara.</h2><p className="opponent-subcopy">{scanMode === 'full' ? 'Yüklenen ve seçili filtreye uyan tüm oyunlarda, seçtiğin oyuncunun bütün hamleleri incelenir. Uzun arşivler daha uzun sürer; bu ekran açıkken duraklatıp devam edebilirsin.' : 'İlk 5 oyunda oyuncunun ilk 12 hamlesi incelenir.'} Mod, oyuncu veya renk değişirse analiz sıfırlanır. Sayfayı kapatmak ilerlemeyi siler.</p></div>
+              {running ? <button key="cancel-scan" className="secondary-button" type="button" onClick={cancelScan}>Duraklat</button> : <button key="start-scan" className="primary-button" type="button" disabled={!filteredGames.length} onClick={() => void analyzeGames(status === 'cancelled' || status === 'error')}>{status === 'cancelled' || status === 'error' ? 'Kaldığın yerden devam et' : findings.length ? 'Yeniden tara' : 'Motor taramasını başlat'} <span>↗</span></button>}
             </div>
             {status !== 'idle' && <div className="opponent-progress" role="status"><progress value={progress.done} max={Math.max(1, progress.total)} /><p>{scanMessage}</p><small>{progress.done} / {progress.total} hamle · {progress.games} oyun · derinlik {SEARCH_DEPTH}{status !== 'done' ? ' · kısmi sonuç' : ''}</small></div>}
             {findings.length > 0 && (

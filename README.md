@@ -38,7 +38,7 @@ pnpm preview
 
 Rakip hazırlığı tek yüklemede toplam 2 MB ve ilk 200 PGN oyununu kabul eder. Bozuk ve yinelenen kayıtları ayırır. Oyun dosyaları sunucuya gönderilmez; bu ekrandan ayrılınca yüklenen arşiv temizlenir. Rapor indirilebilir.
 
-Motor taraması seçilen listenin ilk 5 oyununda oyuncunun ilk 12 hamlesini derinlik 10 ile inceler; iptal edildiğinde tamamlanan sonuçları korur. Tekrar eden hata, farklı oyunlarda aynı konumda aynı hamlenin en az 1 piyon motor kaybı göstermesidir. Oyun sonları, bütün stratejik örüntüler ve rakibin gelecekteki tercihleri hakkında kesin sonuç üretmez.
+Hızlı tarama ilk 5 oyundaki ilk 12 oyuncu hamlesini inceler. Tam maç analizi, seçili oyunların tüm oyuncu hamlelerini derinlik 10 ile tarar. Duraklatıp aynı ekranda kaldığı yerden devam edilebilir; sayfa kapanınca ilerleme silinir. Oyuncu, renk veya mod değişirse sonuçlar sıfırlanır. Tekrar eden hata, farklı oyunlarda aynı konumda aynı hamlenin en az 1 piyon motor kaybı göstermesidir. Tam analiz oyun sonlarını da kapsar. Oyun evreleri taş miktarı ve hamle numarasına göre yaklaşık sınıflandırılır; bütün stratejik örüntüler veya gelecekteki tercihler hakkında kesin sonuç üretmez.
 
 Açılış adları yerel hamle sırası sözlüğünden bulunur. Tüm ECO varyasyonları ve farklı hamle sıralarıyla ulaşılan aynı konumlar henüz kapsanmaz. Maç doğruluğu ve oyuncu seviyesi uygulamanın tahminidir; resmi Elo veya Chess.com'un doğruluk formülü değildir.
 
