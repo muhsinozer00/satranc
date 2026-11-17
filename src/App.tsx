@@ -1,3 +1,4 @@
+import { startPieceDrag } from './boardDrag'
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Chess, type Move, type Square } from 'chess.js'
 import { StockfishEngine, type EngineLine, type EngineResult } from './engine'
@@ -415,8 +416,7 @@ export default function App() {
       event.preventDefault()
       return
     }
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', square)
+    startPieceDrag(event, square)
     setSelectedSquare(square)
     setLegalTargets(game.moves({ square, verbose: true }).map((move) => move.to))
   }
@@ -581,11 +581,11 @@ export default function App() {
                         onClick={() => handleSquareClick(square)}
                         draggable={Boolean(boardReady && piece?.color === 'w')}
                         onDragStart={(event) => handlePieceDragStart(event, square)}
-                        onDragOver={(event) => { if (legalTargets.includes(square)) event.preventDefault() }}
+                        onDragOver={(event) => { if (boardReady) event.preventDefault() }}
                         onDrop={(event) => {
                           event.preventDefault()
                           const from = event.dataTransfer.getData('text/plain') as Square
-                          if (from && legalTargets.includes(square)) requestUserMove(from, square)
+                          if (/^[a-h][1-8]$/.test(from)) requestUserMove(from, square)
                         }}
                       >
                         {isFileLabel && <span className="coordinate coordinate-file">{file}</span>}

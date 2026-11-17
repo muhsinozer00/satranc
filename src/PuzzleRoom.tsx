@@ -1,3 +1,4 @@
+import { startPieceDrag } from './boardDrag'
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Chess, type Square } from 'chess.js'
 import type { BoardTheme, PieceSet } from './types'
@@ -294,8 +295,7 @@ export default function PuzzleRoom({ boardTheme, pieceSet, onBack }: Props) {
       event.preventDefault()
       return
     }
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', square)
+    startPieceDrag(event, square)
     setSelectedSquare(square)
     setLegalTargets(game.moves({ square, verbose: true }).map((move) => move.to))
   }
@@ -344,11 +344,11 @@ export default function PuzzleRoom({ boardTheme, pieceSet, onBack }: Props) {
                     onClick={() => handleSquareClick(square)}
                     draggable={Boolean(isDraggable)}
                     onDragStart={(event) => handleDragStart(event, square)}
-                    onDragOver={(event) => { if (isTarget) event.preventDefault() }}
+                    onDragOver={(event) => { if (inputReady) event.preventDefault() }}
                     onDrop={(event) => {
                       event.preventDefault()
                       const from = event.dataTransfer.getData('text/plain') as Square
-                      if (from && isTarget) submitMove(from, square)
+                      if (/^[a-h][1-8]$/.test(from)) submitMove(from, square)
                     }}
                   >
                     {isFileLabel && <span className="coordinate coordinate-file">{file}</span>}

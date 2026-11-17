@@ -135,6 +135,16 @@ check('Full scan includes games beyond five and moves beyond twelve', () => {
   const completed=tasks.slice(0,17)
   assert.deepEqual([...completed,...tasks.slice(completed.length)],tasks)
 })
+
+const { startPieceDrag } = loadTs('src/boardDrag.ts')
+check('Mouse dragging uses the piece image with a centered cursor, not the square', () => {
+  const image={ getBoundingClientRect:()=>({width:64,height:64}) }
+  const calls=[]
+  const transfer={ setData:(...args)=>calls.push(args),setDragImage:(...args)=>calls.push(args) }
+  startPieceDrag({ dataTransfer:transfer,currentTarget:{querySelector:()=>image}},'b1')
+  assert.equal(transfer.effectAllowed,'move')
+  assert.deepEqual(calls,[['text/plain','b1'],[image,32,32]])
+})
 const timers = new Map()
 let nextTimer = 1
 globalThis.window = {

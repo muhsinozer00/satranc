@@ -1,3 +1,4 @@
+import { startPieceDrag } from './boardDrag'
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Chess, type Square } from 'chess.js'
 import { OPENINGS, type OpeningLine } from './openings'
@@ -126,8 +127,7 @@ export default function OpeningRoom({ boardTheme, pieceSet, onBack }: Props) {
   function startDrag(event: DragEvent<HTMLButtonElement>, square: Square) {
     if (!inputReady || game.get(square)?.color !== side) { event.preventDefault(); return }
     setSelected(square)
-    event.dataTransfer.setData('text/plain', square)
-    event.dataTransfer.effectAllowed = 'move'
+    startPieceDrag(event, square)
   }
 
   const touchHandlers = useBoardTouch(game, inputReady, tryMove)
