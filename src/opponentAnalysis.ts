@@ -32,6 +32,7 @@ export type EngineFinding = {
   game: ImportedGame
   move: Move
   ply: number
+  replyUci?: string
   lossCp: number
   bestSan: string
   bestUci: string

@@ -100,6 +100,24 @@ check('Taps, disabled boards and cancelled touch gestures do not submit moves', 
   }
 })
 
+
+const { explainFinding, opponentInsights } = loadTs('src/opponentInsights.ts')
+check('Opponent explanations identify a concrete mate reply and compare sampled rates', () => {
+  const game = new Chess(); game.move('f3'); game.move('e5'); const move = game.move('g4')
+  const finding = { game: { ...collection.games[0], id: 50 }, move, ply: 3, lossCp: 9999, bestSan: 'e4', bestUci: 'e2e4', replyUci: 'd8h4' }
+  assert.equal(explainFinding(finding).category, 'Mat tehdidini kaçırma')
+  assert.match(explainFinding(finding).explanation, /Qh4#/)
+  const summary = opponentInsights([finding, { ...finding, lossCp: 0 }])
+  assert.equal(summary.openings[0].rate, 50)
+  assert.equal(summary.categories[0].games, 1)
+  assert.equal(opponentInsights([]).categories.length, 0)
+})
+check('Unknown strategic reasons are not fabricated from a score', () => {
+  const game = new Chess(); const move = game.move('a3')
+  const finding = { game: collection.games[0], move, ply: 1, lossCp: 120, bestSan: 'e4', bestUci: 'e2e4' }
+  assert.equal(explainFinding(finding).category, 'Daha güçlü devamı kaçırma')
+})
+
 const timers = new Map()
 let nextTimer = 1
 globalThis.window = {

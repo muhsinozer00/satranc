@@ -7,6 +7,8 @@ import {
   type ColorFilter, type EngineFinding, type ImportedGame,
 } from './opponentAnalysis'
 import './opponent.css'
+import OpponentSummary from './OpponentSummary'
+import { explainFinding, opponentInsights } from './opponentInsights'
 
 const EXAMPLE_PGN = '[Event "Örnek çalışma oyunu 1"]\n[White "Çalışma Rakibi"]\n[Black "Örnek Oyuncu"]\n[Result "*"]\n\n1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. d3 Nf6 5. Nc3 d6 6. O-O O-O 7. Bg5 h6 8. Bh4 Be6 *\n\n[Event "Örnek çalışma oyunu 2"]\n[White "Çalışma Rakibi"]\n[Black "Örnek Oyuncu"]\n[Result "*"]\n\n1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. d3 Nf6 5. Nc3 d6 6. Bg5 h6 7. Bh4 g5 8. Bg3 h5 *\n\n[Event "Örnek çalışma oyunu 3"]\n[White "Örnek Oyuncu"]\n[Black "Çalışma Rakibi"]\n[Result "*"]\n\n1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Nf3 O-O 6. Be2 e5 7. O-O Nc6 *'
 const GAME_LIMIT = 5
@@ -62,7 +64,7 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
   const variations = useMemo(() => variationGroups(filteredGames, player), [filteredGames, player])
   const repeats = useMemo(() => repeatedFindings(findings), [findings])
   const noteworthy = useMemo(() => [...findings].filter((finding) => finding.lossCp >= 50).sort((a, b) => b.lossCp - a.lossCp), [findings])
-  const displayedFindings = noteworthy.slice(0, 20)
+  const displayedFindings = noteworthy.slice(0, 60)
   const activeFinding = displayedFindings.find((finding) => findingKey(finding) === activeKey) ?? displayedFindings[0]
   const running = status === 'running'
   const significant = findings.filter((finding) => finding.lossCp >= 100).length
@@ -170,6 +172,7 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
         const before = await search(task.move.before)
         if (run !== generation.current) return
         const playedUci = task.move.from + task.move.to + (task.move.promotion ?? '')
+        let replyUci: string | undefined
         let lossCp = 0
         if (playedUci !== before.bestMove) {
           const after = new Chess(task.game.history[0].before)
@@ -179,12 +182,13 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
           else {
             const afterResult = await search(task.move.after)
             if (run !== generation.current) return
+            replyUci = afterResult.bestMove
             lossCp = Math.max(0, before.scoreCp + afterResult.scoreCp)
           }
         }
         let bestSan = before.bestMove
         try { bestSan = new Chess(task.move.before).move(uciInput(before.bestMove)).san } catch { /* Keep the engine's UCI move if no SAN can be produced. */ }
-        setFindings((current) => [...current, { ...task, lossCp, bestSan, bestUci: before.bestMove }])
+        setFindings((current) => [...current, { ...task, replyUci, lossCp, bestSan, bestUci: before.bestMove }])
         setProgress({ done: index + 1, total: tasks.length, games: scanGames.length })
       }
       if (run === generation.current) {
@@ -215,6 +219,11 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
       '',
       'GÖRÜLEN HAMLЕ DİZİLERİ',
       ...variations.map((variation) => variation.count + ' oyun: ' + variation.line),
+      '',
+      'ANLAŞILIR HAZIRLIK ÖZETİ',
+      ...opponentInsights(findings).categories.map(group => group.category + ': ' + group.examples.length + ' karar, ' + group.games + ' oyun. ' + group.advice),
+      ...opponentInsights(findings).openings.map(row => row.name + ' (' + row.color + '): ' + row.mistakes + '/' + row.total + ' belirgin hata, %' + row.rate),
+      ...noteworthy.map(finding => 'Oyun #' + finding.game.id + ': ' + explainFinding(finding).explanation),
       '',
       'MOTOR TARAMASI',
       'Durum: ' + status + ' · ' + progress.done + '/' + progress.total + ' hamle · derinlik ' + SEARCH_DEPTH,
@@ -300,6 +309,7 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
             {status !== 'idle' && <div className="opponent-progress" role="status"><progress value={progress.done} max={Math.max(1, progress.total)} /><p>{scanMessage}</p><small>{progress.done} / {progress.total} hamle · {progress.games} oyun · derinlik {SEARCH_DEPTH}{status !== 'done' ? ' · kısmi sonuç' : ''}</small></div>}
             {findings.length > 0 && (
               <>
+                <OpponentSummary findings={findings} partial={status !== "done"} onSelect={(finding) => { setActiveKey(findingKey(finding)); setShowAfter(false); window.setTimeout(() => document.querySelector(".opponent-position")?.scrollIntoView({ behavior: "smooth", block: "center" }), 0) }} />
                 <div className="opponent-scan-stats"><div><strong>{findings.length}</strong><span>incelenen hamle</span></div><div><strong>{significant}</strong><span>en az 1 piyon kayıp</span></div><div><strong>{repeats.length}</strong><span>tekrar eden konum/hamle</span></div></div>
                 <div className="opponent-repeats">
                   <h3>Tekrar gözlemleri</h3>
@@ -314,7 +324,7 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
                   <div className="opponent-position">
                     <ReadonlyBoard fen={showAfter ? activeFinding.move.after : activeFinding.move.before} />
                     <div className="opponent-position-controls"><button type="button" aria-pressed={!showAfter} onClick={() => setShowAfter(false)}>Hamle öncesi</button><button type="button" aria-pressed={showAfter} onClick={() => setShowAfter(true)}>Hamle sonrası</button></div>
-                    <p><b>Oynanan: {activeFinding.move.san}</b><br />Motor önerisi: <b>{activeFinding.bestSan}</b><br />Yaklaşık değerlendirme kaybı: {lossLabel(activeFinding.lossCp)}.</p>
+                    <h3>{explainFinding(activeFinding).category}</h3><p>{explainFinding(activeFinding).explanation}</p><p><strong>Hazırlığında ne yapmalısın?</strong> {explainFinding(activeFinding).advice}</p><p><b>Oynanan: {activeFinding.move.san}</b><br />Motor önerisi: <b>{activeFinding.bestSan}</b><br />Yaklaşık değerlendirme kaybı: {lossLabel(activeFinding.lossCp)}.</p>
                     <small>#{activeFinding.game.id} · {activeFinding.game.white} — {activeFinding.game.black} · {activeFinding.game.date}</small>
                   </div>
                 </div> : <p className="opponent-import-note">Bu tarama örneğinde 0,5 piyon veya üstü değerlendirme farkı bulunmadı.</p>}

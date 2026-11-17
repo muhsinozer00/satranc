@@ -112,3 +112,13 @@
   .opponent-opening-row small { margin-left:0; }
 }
 @media(prefers-reduced-motion:reduce) { .opponent-page * { scroll-behavior:auto; } }
+.opponent-summary { margin:24px 0; padding:24px; background:#f1f5e9; border:1px solid #d5dfc8; border-radius:14px; }
+.opponent-summary > p { font-size:14px; line-height:1.8; color:#52624a; }
+.opponent-insight-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr)); gap:14px; margin:22px 0; }
+.opponent-insight-grid article,.opponent-opening-evidence article { padding:18px; border:1px solid #e1e6d9; border-radius:10px; background:#fffefa; }
+.opponent-insight-grid p,.opponent-opening-evidence p { font-size:13px; line-height:1.7; color:#65745a; }
+.opponent-insight-grid strong,.opponent-opening-evidence small { font-size:12px; color:#758565; }
+.opponent-insight-grid button { display:block; width:100%; min-height:44px; text-align:left; margin:7px 0; border:0; border-radius:7px; background:#eaf0df; color:#405735; padding:10px; cursor:pointer; font-size:12px; }
+.opponent-insight-grid summary { cursor:pointer; font-size:12px; padding-top:12px; }
+.opponent-opening-evidence { display:grid; gap:10px; margin:16px 0; }
+@media(max-width:740px) { .opponent-summary { padding:16px; } }
