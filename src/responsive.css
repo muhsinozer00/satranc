@@ -50,10 +50,6 @@ body { line-height: 1.5; }
 .puzzle-level-card > span { font-size: 11px; }
 .puzzle-player-strip { font-size: 13px; }
 .puzzle-actions .primary-button { font-size: 14px; min-height: 44px; }
-/* Safari must not interpret repeated game taps as double-tap zoom.
-   Cover the page, empty squares and the AI turn too; pinch zoom remains
-   available outside draggable pieces, which keep their custom touch drag. */
-.app-shell, .chess-board, .square { touch-action: manipulation; }
 .square[draggable='true'] { touch-action: none; }
 @media(max-width: 900px) {
   .game-layout { grid-template-columns: minmax(0,1fr) 310px; gap: 18px; }
