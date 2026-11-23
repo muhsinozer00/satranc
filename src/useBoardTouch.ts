@@ -7,6 +7,7 @@ export function useBoardTouch(game: Chess, enabled: boolean, onMove: (from: Squa
   const suppressClick = useRef(false)
   return {
     onPointerDown(event: PointerEvent<HTMLDivElement>) {
+      if (!event.isPrimary || gesture.current) return
       suppressClick.current = false
       if (event.pointerType === 'mouse' || !enabled) return
       const square = (event.target as HTMLElement).closest<HTMLElement>('[data-square]')?.dataset.square as Square | undefined
@@ -20,8 +21,8 @@ export function useBoardTouch(game: Chess, enabled: boolean, onMove: (from: Squa
     },
     onPointerUp(event: PointerEvent<HTMLDivElement>) {
       const active = gesture.current
-      gesture.current = null
       if (!active || active.id !== event.pointerId) return
+      gesture.current = null
       if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
       if (!active.moved) return
       suppressClick.current = true
@@ -31,7 +32,13 @@ export function useBoardTouch(game: Chess, enabled: boolean, onMove: (from: Squa
       })?.dataset.square as Square | undefined
       if (enabled && target && game.moves({ square: active.from, verbose: true }).some((move) => move.to === target)) onMove(active.from, target)
     },
-    onPointerCancel() { gesture.current = null },
+    onPointerCancel(event: PointerEvent<HTMLDivElement>) {
+      const active = gesture.current
+      if (!active || active.id !== event.pointerId) return
+      gesture.current = null
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+      if (active.moved) suppressClick.current = true
+    },
     onClickCapture(event: MouseEvent<HTMLDivElement>) {
       if (suppressClick.current) { suppressClick.current = false; event.preventDefault(); event.stopPropagation() }
     },

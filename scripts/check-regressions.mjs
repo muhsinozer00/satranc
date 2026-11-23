@@ -86,7 +86,7 @@ function touchBoard() {
 }
 check('Touch drag submits a legal move once and suppresses synthetic click', () => {
   const moves = []; const handlers = useBoardTouch(new Chess(), true, (from, to) => moves.push(from + to)); const board = touchBoard()
-  const event = { pointerType: 'touch', pointerId: 1, clientX: 45, clientY: 65, currentTarget: board, target: { closest: () => ({ dataset: { square: 'e2' } }) } }
+  const event = { pointerType: 'touch', isPrimary: true, pointerId: 1, clientX: 45, clientY: 65, currentTarget: board, target: { closest: () => ({ dataset: { square: 'e2' } }) } }
   handlers.onPointerDown(event); handlers.onPointerMove({ ...event, clientY: 45 }); handlers.onPointerUp({ ...event, clientY: 45 })
   assert.deepEqual(moves, ['e2e4']); assert.equal(board.hasPointerCapture(), false)
   let prevented = false; handlers.onClickCapture({ preventDefault: () => { prevented = true }, stopPropagation() {} }); assert.equal(prevented, true)
@@ -95,11 +95,42 @@ check('Touch drag submits a legal move once and suppresses synthetic click', () 
 check('Taps, disabled boards and cancelled touch gestures do not submit moves', () => {
   for (const mode of ['tap', 'disabled', 'cancel']) {
     const moves = []; const handlers = useBoardTouch(new Chess(), mode !== 'disabled', (from, to) => moves.push(from + to)); const board = touchBoard()
-    const event = { pointerType: 'touch', pointerId: 1, clientX: 45, clientY: 65, currentTarget: board, target: { closest: () => ({ dataset: { square: 'e2' } }) } }
-    handlers.onPointerDown(event); if (mode !== 'tap') handlers.onPointerMove({ ...event, clientY: 45 }); if (mode === 'cancel') handlers.onPointerCancel(); handlers.onPointerUp({ ...event, clientY: 45 }); assert.equal(moves.length, 0)
+    const event = { pointerType: 'touch', isPrimary: true, pointerId: 1, clientX: 45, clientY: 65, currentTarget: board, target: { closest: () => ({ dataset: { square: 'e2' } }) } }
+    handlers.onPointerDown(event); if (mode !== 'tap') handlers.onPointerMove({ ...event, clientY: 45 }); if (mode === 'cancel') handlers.onPointerCancel(event); handlers.onPointerUp({ ...event, clientY: 45 }); assert.equal(moves.length, 0)
   }
 })
 
+
+
+check('A second finger cannot replace or end the active drag', () => {
+  for (const ending of ['onPointerUp', 'onPointerCancel']) {
+    const moves = []; const handlers = useBoardTouch(new Chess(), true, (from, to) => moves.push(from + to)); const board = touchBoard()
+    const first = { pointerType: 'touch', isPrimary: true, pointerId: 1, clientX: 45, clientY: 65, currentTarget: board, target: { closest: () => ({ dataset: { square: 'e2' } }) } }
+    const second = { ...first, isPrimary: false, pointerId: 2, target: { closest: () => ({ dataset: { square: 'd2' } }) } }
+    handlers.onPointerDown(first); handlers.onPointerMove({ ...first, clientY: 45 })
+    handlers.onPointerDown(second); handlers[ending](second)
+    handlers.onPointerUp({ ...first, clientY: 45 })
+    assert.deepEqual(moves, ['e2e4']); assert.equal(board.hasPointerCapture(), false)
+  }
+})
+check('A non-primary touch alone never starts a chess move', () => {
+  const moves = []; const handlers = useBoardTouch(new Chess(), true, (from, to) => moves.push(from + to)); const board = touchBoard()
+  const event = { pointerType: 'touch', isPrimary: false, pointerId: 2, clientX: 45, clientY: 65, currentTarget: board, target: { closest: () => ({ dataset: { square: 'e2' } }) } }
+  handlers.onPointerDown(event); handlers.onPointerMove({ ...event, clientY: 45 }); handlers.onPointerUp({ ...event, clientY: 45 })
+  assert.deepEqual(moves, [])
+})
+check('Cancelled drag releases capture, suppresses its click and allows the next tap', () => {
+  const moves = []; const handlers = useBoardTouch(new Chess(), true, (from, to) => moves.push(from + to)); const board = touchBoard()
+  const event = { pointerType: 'touch', isPrimary: true, pointerId: 1, clientX: 45, clientY: 65, currentTarget: board, target: { closest: () => ({ dataset: { square: 'e2' } }) } }
+  handlers.onPointerDown(event); handlers.onPointerMove({ ...event, clientY: 45 })
+  assert.equal(board.hasPointerCapture(), true)
+  handlers.onPointerCancel(event); handlers.onPointerUp({ ...event, clientY: 45 })
+  assert.equal(board.hasPointerCapture(), false); assert.deepEqual(moves, [])
+  let prevented = 0; const click = { preventDefault() { prevented++ }, stopPropagation() {} }
+  handlers.onClickCapture(click); assert.equal(prevented, 1)
+  handlers.onPointerDown({ ...event, pointerId: 3 }); handlers.onPointerUp({ ...event, pointerId: 3 })
+  handlers.onClickCapture(click); assert.equal(prevented, 1)
+})
 
 const { explainFinding, opponentInsights } = loadTs('src/opponentInsights.ts')
 check('Opponent explanations identify a concrete mate reply and compare sampled rates', () => {

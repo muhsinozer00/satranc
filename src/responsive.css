@@ -106,3 +106,36 @@ body { min-width: 320px; }
 }
 .opening-board-column { width: 100%; max-width: 600px; margin-inline: auto; }
 @media(min-width:1191px) { .opening-practice-grid { grid-template-columns: minmax(0,600px) minmax(0,1fr); } }
+
+/* Keep touch handling local to controls, not the entire scrolling page. */
+button, .chess-board { touch-action: manipulation; }
+.square[draggable='true'] { touch-action: none; }
+.square { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.board-space, .board-column, .side-panel { min-width: 0; }
+.board-frame { height: auto; }
+.chess-board { height: auto; }
+@media (hover: none) { .square:hover .piece { transform: none; } }
+@media (max-width: 740px) {
+  .game-layout { grid-template-columns: minmax(0,1fr); }
+  .player-strip { height: auto; gap: 8px; flex-wrap: wrap; padding-block: 8px; }
+  .player-identity { min-width: 0; gap: 7px; }
+  .player-avatar { flex-shrink: 0; }
+  .player-rating { margin-left: auto; flex-direction: column; align-items: flex-end; gap: 0; }
+  .rating-label { font-size: 9px; letter-spacing: .3px; }
+  .board-action-controls { flex-wrap: wrap; justify-content: flex-end; }
+  .opponent-mode select { font-size: 16px; width: 100%; min-width: 0; }
+}
+@media (max-width: 430px) {
+  body { min-width: 0; }
+  .topbar { gap: 4px; padding: 8px 12px; }
+  .topbar-right { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); width: 100%; gap: 2px; }
+  .main-nav { display: contents; }
+  .main-nav button, .topbar-puzzles, .topbar-play { min-width: 0; min-height: 44px; padding: 6px 3px; font-size: 11px; }
+  .topbar-play { gap: 3px; }
+  .game-heading { flex-direction: row; align-items: center; gap: 10px; padding: 16px 0 8px; }
+  .game-heading h1 { font-size: 23px; letter-spacing: -1px; }
+  .game-heading .eyebrow { font-size: 9px; letter-spacing: .5px; }
+  .game-heading .back-home { flex-shrink: 0; font-size: 12px; padding: 8px; }
+  .side-panel { padding: 16px; }
+  .board-hint { overflow-wrap: anywhere; }
+}

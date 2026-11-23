@@ -173,6 +173,20 @@ export default function App() {
   const [notice, setNotice] = useState('')
   const [resigned, setResigned] = useState(false)
   const [boardScale, setBoardScale] = useState(1)
+  const boardSpaceRef = useRef<HTMLDivElement>(null)
+  const [boardSpaceWidth, setBoardSpaceWidth] = useState(650)
+  const fittedBoardWidth = Math.min(650, boardSpaceWidth)
+  const maxBoardScale = Math.min(1.3, boardSpaceWidth / fittedBoardWidth)
+  const visibleBoardScale = Math.min(boardScale, maxBoardScale)
+  useEffect(() => {
+    const space = boardSpaceRef.current
+    if (!space) return
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width > 0) setBoardSpaceWidth(entry.contentRect.width)
+    })
+    observer.observe(space)
+    return () => observer.disconnect()
+  }, [])
   const [soundsEnabled, setSoundsEnabled] = useState(true)
   const [reviewPly, setReviewPly] = useState(0)
   const engineRef = useRef<StockfishEngine | null>(null)
@@ -541,7 +555,8 @@ export default function App() {
               <button className="back-home" type="button" onClick={() => setScreen('home')}>← Ana menü</button>
             </section>
             <section className="game-layout" aria-label="Satranç oyunu">
-          <div className="board-column" style={{ maxWidth: `${650 * boardScale}px` }}>
+          <div className="board-space" ref={boardSpaceRef}>
+          <div className="board-column" style={{ width: `${fittedBoardWidth * visibleBoardScale}px`, maxWidth: '100%' }}>
             <div className="player-strip opponent-strip">
               <div className="player-identity">
                 <div className="player-avatar opponent-avatar">♟</div>
@@ -610,12 +625,13 @@ export default function App() {
             <div className="board-actions">
               <div className="board-hint"><span className="hint-icon">↗</span> Taşı seçip kareye dokun veya sürükleyip bırak.</div>
               <div className="board-action-controls">
-                <div className="board-zoom" aria-label="Tahta boyutu"><button type="button" aria-label="Tahtayı küçült" disabled={boardScale <= .7} onClick={() => setBoardScale((size) => Math.max(.7, +(size - .1).toFixed(1)))}>−</button><span>{Math.round(boardScale * 100)}%</span><button type="button" aria-label="Tahtayı büyüt" disabled={boardScale >= 1.3} onClick={() => setBoardScale((size) => Math.min(1.3, +(size + .1).toFixed(1)))}>+</button></div>
+                <div className="board-zoom" aria-label="Tahta boyutu"><button type="button" aria-label="Tahtayı küçült" disabled={visibleBoardScale <= .7} onClick={() => setBoardScale(Math.max(.7, +(visibleBoardScale - .1).toFixed(1)))}>−</button><span>{Math.round(visibleBoardScale * 100)}%</span><button type="button" aria-label="Tahtayı büyüt" disabled={visibleBoardScale >= maxBoardScale} onClick={() => setBoardScale(Math.min(maxBoardScale, +(visibleBoardScale + .1).toFixed(1)))}>+</button></div>
                 <button className="subtle-button" type="button" onClick={() => setFlipped((value) => !value)} aria-label="Tahtayı çevir"><span>⟳</span> Çevir</button>
               </div>
             </div>
           </div>
 
+          </div>
           <aside className="side-panel">
             <div className="panel-topline"><span>OYUN MASASI</span><span className="turn-number">HAMLE <i>{String(Math.ceil((moveLog.length + 1) / 2)).padStart(2, '0')}</i></span></div>
             <h2>{phase === 'review' ? 'Oyununa bakalım.' : 'Tahta senin.'}</h2>
