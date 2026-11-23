@@ -9,6 +9,7 @@ import {
 import './opponent.css'
 import { scanTasks, phaseSummary, type ScanMode } from './opponentScan'
 import OpponentSummary from './OpponentSummary'
+import OpponentReplay from './OpponentReplay'
 import { explainFinding, opponentInsights } from './opponentInsights'
 
 const EXAMPLE_PGN = '[Event "Örnek çalışma oyunu 1"]\n[White "Çalışma Rakibi"]\n[Black "Örnek Oyuncu"]\n[Result "*"]\n\n1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. d3 Nf6 5. Nc3 d6 6. O-O O-O 7. Bg5 h6 8. Bh4 Be6 *\n\n[Event "Örnek çalışma oyunu 2"]\n[White "Çalışma Rakibi"]\n[Black "Örnek Oyuncu"]\n[Result "*"]\n\n1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. d3 Nf6 5. Nc3 d6 6. Bg5 h6 7. Bh4 g5 8. Bg3 h5 *\n\n[Event "Örnek çalışma oyunu 3"]\n[White "Örnek Oyuncu"]\n[Black "Çalışma Rakibi"]\n[Result "*"]\n\n1. d4 Nf6 2. c4 g6 3. Nc3 Bg7 4. e4 d6 5. Nf3 O-O 6. Be2 e5 7. O-O Nc6 *'
@@ -24,21 +25,6 @@ function lossLabel(cp: number) {
 function findingKey(finding: EngineFinding) {
   return finding.game.id + '-' + finding.ply
 }
-function ReadonlyBoard({ fen }: { fen: string }) {
-  const board = new Chess(fen).board()
-  return (
-    <div className="opponent-diagram" role="img" aria-label="Seçilen hamlenin konumu. Beyaz taşlar altta.">
-      {board.flatMap((row, rank) => row.map((piece, file) => (
-        <div className={'opponent-square ' + ((rank + file) % 2 ? 'opponent-dark' : 'opponent-light')} key={rank + '-' + file}>
-          {file === 0 && <small className="opponent-rank">{8 - rank}</small>}
-          {rank === 7 && <small className="opponent-file">{'abcdefgh'[file]}</small>}
-          {piece && <img src={import.meta.env.BASE_URL + 'pieces/livius/' + piece.color + piece.type + '.svg'} alt="" draggable="false" />}
-        </div>
-      )))}
-    </div>
-  )
-}
-
 export default function OpponentRoom({ onBack }: { onBack: () => void }) {
   const [pgn, setPgn] = useState('')
   const [games, setGames] = useState<ImportedGame[]>([])
@@ -47,15 +33,14 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
   const [importNote, setImportNote] = useState('')
   const [importError, setImportError] = useState('')
   const [loadingFile, setLoadingFile] = useState(false)
-  const [scanMode, setScanMode] = useState<ScanMode>('quick')
+  const [scanMode, setScanMode] = useState<ScanMode>('full')
   const completed = useRef<EngineFinding[]>([])
   const searchCache = useRef(new Map<string, EngineResult>())
   const [status, setStatus] = useState<ScanStatus>('idle')
   const [scanMessage, setScanMessage] = useState('')
   const [findings, setFindings] = useState<EngineFinding[]>([])
   const [progress, setProgress] = useState({ done: 0, total: 0, games: 0 })
-  const [activeKey, setActiveKey] = useState('')
-  const [showAfter, setShowAfter] = useState(false)
+  const [reviewTarget, setReviewTarget] = useState<{ gameId: number; ply: number } | null>(null)
   const generation = useRef(0)
   const importGeneration = useRef(0)
   const engineRef = useRef<StockfishEngine | null>(null)
@@ -66,8 +51,6 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
   const variations = useMemo(() => variationGroups(filteredGames, player), [filteredGames, player])
   const repeats = useMemo(() => repeatedFindings(findings), [findings])
   const noteworthy = useMemo(() => [...findings].filter((finding) => finding.lossCp >= 50).sort((a, b) => b.lossCp - a.lossCp), [findings])
-  const displayedFindings = noteworthy.slice(0, 60)
-  const activeFinding = findings.find((finding) => findingKey(finding) === activeKey) ?? displayedFindings[0]
   const running = status === 'running'
   const significant = findings.filter((finding) => finding.lossCp >= 100).length
 
@@ -87,8 +70,7 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
     setScanMessage('')
     setFindings([])
     setProgress({ done: 0, total: 0, games: 0 })
-    setActiveKey('')
-    setShowAfter(false)
+    setReviewTarget(null)
   }
 
   function importText(text: string, fileRequest?: number) {
@@ -149,7 +131,7 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
     const engine = new StockfishEngine(() => {})
     engineRef.current = engine
     setStatus('running')
-    if (!resume) { completed.current = []; searchCache.current.clear(); setFindings([]); setActiveKey('') }
+    if (!resume) { completed.current = []; searchCache.current.clear(); setFindings([]) }
     setProgress({ done: completed.current.length, total: tasks.length, games: gameCount })
     setScanMessage('Stockfish hazırlanıyor. Oyunlar bu tarayıcıda inceleniyor.')
     const cache = searchCache.current
@@ -311,28 +293,17 @@ export default function OpponentRoom({ onBack }: { onBack: () => void }) {
             {status !== 'idle' && <div className="opponent-progress" role="status"><progress value={progress.done} max={Math.max(1, progress.total)} /><p>{scanMessage}</p><small>{progress.done} / {progress.total} hamle · {progress.games} oyun · derinlik {SEARCH_DEPTH}{status !== 'done' ? ' · kısmi sonuç' : ''}</small></div>}
             {findings.length > 0 && (
               <>
-                <OpponentSummary findings={findings} partial={status !== "done"} onSelect={(finding) => { setActiveKey(findingKey(finding)); setShowAfter(false); window.setTimeout(() => document.querySelector(".opponent-position")?.scrollIntoView({ behavior: "smooth", block: "center" }), 0) }} />
+                <OpponentSummary findings={findings} partial={status !== "done"} onSelect={(finding) => setReviewTarget({ gameId: finding.game.id, ply: finding.ply })} />
                 <div className="opponent-scan-stats"><div><strong>{findings.length}</strong><span>incelenen hamle</span></div><div><strong>{significant}</strong><span>en az 1 piyon kayıp</span></div><div><strong>{repeats.length}</strong><span>tekrar eden konum/hamle</span></div></div>
                 <div className="opponent-repeats">
                   <h3>Tekrar gözlemleri</h3>
                   {repeats.length ? repeats.map((repeat) => <p key={findingKey(repeat[0])}><b>{repeat.length} farklı oyunda {repeat[0].move.san}</b> aynı konumda en az 1 piyonluk motor farkı oluşturdu. Motor önerisi: <b>{repeat[0].bestSan}</b>. Oyunlar: {repeat.map((finding) => '#' + finding.game.id).join(', ')}.</p>) : <p>İncelenen hamlelerde aynı konumda ve aynı hamlede tekrar eden, en az 1 piyonluk kayıp henüz bulunmadı. Bu, oyuncunun başka oyunlarda hata yapmadığı anlamına gelmez.</p>}
                 </div>
-                {activeFinding ? <div className="opponent-findings">
-                  <div className="opponent-finding-list">
-                    <h3>İncelenecek kararlar</h3>
-                    <p className="opponent-subcopy">En az 0,5 piyon fark gösteren en büyük {displayedFindings.length} karar. Sınırlı derinlikteki motor farkları yaklaşık değerlerdir.</p>
-                    {displayedFindings.map((finding) => <button type="button" className={findingKey(activeFinding) === findingKey(finding) ? 'opponent-finding active' : 'opponent-finding'} key={findingKey(finding)} onClick={() => { setActiveKey(findingKey(finding)); setShowAfter(false) }}><span>#{finding.game.id} · {finding.move.before.split(' ')[5]}{finding.move.color === 'b' ? '... ' : '. '}{finding.move.san}</span><strong>{lossLabel(finding.lossCp)}</strong><small>{finding.game.opening}</small></button>)}
-                  </div>
-                  <div className="opponent-position">
-                    <ReadonlyBoard fen={showAfter ? activeFinding.move.after : activeFinding.move.before} />
-                    <div className="opponent-position-controls"><button type="button" aria-pressed={!showAfter} onClick={() => setShowAfter(false)}>Hamle öncesi</button><button type="button" aria-pressed={showAfter} onClick={() => setShowAfter(true)}>Hamle sonrası</button></div>
-                    <h3>{explainFinding(activeFinding).category}</h3><p>{explainFinding(activeFinding).explanation}</p><p><strong>Hazırlığında ne yapmalısın?</strong> {explainFinding(activeFinding).advice}</p><p><b>Oynanan: {activeFinding.move.san}</b><br />Motor önerisi: <b>{activeFinding.bestSan}</b><br />Yaklaşık değerlendirme kaybı: {lossLabel(activeFinding.lossCp)}.</p>
-                    <small>#{activeFinding.game.id} · {activeFinding.game.white} — {activeFinding.game.black} · {activeFinding.game.date}</small>
-                  </div>
-                </div> : <p className="opponent-import-note">Bu tarama örneğinde 0,5 piyon veya üstü değerlendirme farkı bulunmadı.</p>}
+
               </>
             )}
           </section>
+          <OpponentReplay games={filteredGames} findings={findings} target={reviewTarget} />
         </>
       )}
     </main>
